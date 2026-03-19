@@ -4,6 +4,8 @@ import javax.swing.*;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
 import java.awt.*;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
 import java.io.InputStream;
 import java.net.URI;
 import java.net.URLEncoder;
@@ -15,10 +17,12 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.text.NumberFormat;
+import java.util.List;
 
 public class CurseForgeBrowser {
 
-    private static final String API_KEY = "$2a$10$8ZIpAo3NEB6uw9njXQP.Ge3cA2uG9HLaktlDbEEH3YpfNdFwGd/pq";
+    private static final String API_KEY = "$2a$10$8ZIpAo3NEB6uw9njXQP.Ge3cA2uG9HLaktlDbEEH3YpfNdFwGd/pq"; // CurseForge API Key hier einsetzen
     private static final int GAME_ID = 432;
 
     private static JPanel contentPanel;
@@ -28,193 +32,208 @@ public class CurseForgeBrowser {
     private static final int pageSize = 20;
     private static String currentSearch = "";
 
+    private static Timer searchTimer;
+
+    private static final Color BG = new Color(32, 34, 37);
+    private static final Color CARD = new Color(47, 49, 54);
+    private static final Color HOVER = new Color(64, 68, 75);
+
     public static JPanel create() {
 
-        JPanel mainPanel = new JPanel(new BorderLayout());
-        mainPanel.setBackground(new Color(30, 30, 30));
+        Color Cliont = new Color(188, 19, 254);
 
-        // ---------- TOP PANEL ----------
+        JPanel mainPanel = new JPanel(new BorderLayout());
+        mainPanel.setBackground(BG);
+
+        // ---------- SEARCH BAR ----------
         JPanel topPanel = new JPanel(new BorderLayout());
+        topPanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+
         searchField = new JTextField();
-        searchField.setFont(new Font("Arial", Font.PLAIN, 18));
-        searchField.setBackground(Color.darkGray);
-        searchField.setMargin(new Insets(30, 10, 50, 10));
+        searchField.setFont(new Font("Arial", Font.PLAIN, 16));
+        searchField.setPreferredSize(new Dimension(200, 35));
+
+
+        searchField.getDocument().addDocumentListener(new DocumentListener() {
+            private void restartTimer() {
+                if (searchTimer != null) searchTimer.stop();
+                searchTimer = new Timer(300, e -> doSearch());
+                searchTimer.setRepeats(false);
+                searchTimer.start();
+            }
+            public void insertUpdate(DocumentEvent e) { restartTimer(); }
+            public void removeUpdate(DocumentEvent e) { restartTimer(); }
+            public void changedUpdate(DocumentEvent e) { restartTimer(); }
+        });
 
         topPanel.add(searchField, BorderLayout.CENTER);
-
         mainPanel.add(topPanel, BorderLayout.NORTH);
 
-        // ---------- CONTENT ----------
+        // ---------- MOD LIST ----------
         contentPanel = new JPanel();
         contentPanel.setLayout(new BoxLayout(contentPanel, BoxLayout.Y_AXIS));
-        contentPanel.setBackground(new Color(30, 30, 30));
+        contentPanel.setBackground(BG);
 
         JScrollPane scrollPane = new JScrollPane(contentPanel);
+        scrollPane.getVerticalScrollBar().setUnitIncrement(16);
         mainPanel.add(scrollPane, BorderLayout.CENTER);
 
         // ---------- LOAD MORE ----------
-        JButton loadMoreButton = new JButton("Load More");
-        loadMoreButton.addActionListener(e -> {
+        JButton loadMore = new JButton("Load More");
+        loadMore.addActionListener(e -> {
             currentIndex += pageSize;
             loadMods();
         });
+        mainPanel.add(loadMore, BorderLayout.SOUTH);
 
-        mainPanel.add(loadMoreButton, BorderLayout.SOUTH);
-
+        // erste Mod-Ladung
         loadMods();
 
         return mainPanel;
     }
 
-    // ---------- SEARCH ----------
     private static void doSearch() {
         currentSearch = searchField.getText();
         currentIndex = 0;
         contentPanel.removeAll();
+        contentPanel.revalidate();
+        contentPanel.repaint();
         loadMods();
     }
 
-    // ---------- LOAD MODS ----------
     private static void loadMods() {
-        try {
-            String url = "https://api.curseforge.com/v1/mods/search"
-                    + "?gameId=" + GAME_ID
-                    + "&sortField=2"
-                    + "&sortOrder=desc"
-                    + "&pageSize=" + pageSize
-                    + "&index=" + currentIndex;
+        new SwingWorker<Void, JPanel>() {
+            protected Void doInBackground() throws Exception {
+                String url = "https://api.curseforge.com/v1/mods/search"
+                        + "?gameId=" + GAME_ID
+                        + "&sortField=2"
+                        + "&sortOrder=desc"
+                        + "&pageSize=" + pageSize
+                        + "&index=" + currentIndex;
 
-            if (!currentSearch.isEmpty()) {
-                String encoded = URLEncoder.encode(currentSearch, StandardCharsets.UTF_8);
-                url += "&searchFilter=" + encoded;
+                if (!currentSearch.isEmpty()) {
+                    url += "&searchFilter=" + URLEncoder.encode(currentSearch, StandardCharsets.UTF_8);
+                }
+
+                HttpClient client = HttpClient.newHttpClient();
+                HttpRequest request = HttpRequest.newBuilder()
+                        .uri(URI.create(url))
+                        .header("x-api-key", API_KEY)
+                        .header("Accept", "application/json")
+                        .GET()
+                        .build();
+
+                HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+                JsonObject root = JsonParser.parseString(response.body()).getAsJsonObject();
+                JsonArray data = root.getAsJsonArray("data");
+
+                for (JsonElement element : data) {
+                    JsonObject mod = element.getAsJsonObject();
+                    String name = mod.get("name").getAsString();
+                    String summary = mod.get("summary").getAsString();
+                    int modId = mod.get("id").getAsInt();
+                    long downloads = mod.get("downloadCount").getAsLong();
+
+                    String iconUrl = null;
+                    if (mod.has("logo") && !mod.get("logo").isJsonNull()) {
+                        iconUrl = mod.getAsJsonObject("logo").get("thumbnailUrl").getAsString();
+                    }
+
+                    JPanel card = createModCard(name, summary, iconUrl, modId, downloads);
+                    publish(card);
+                }
+                return null;
             }
+
+            protected void process(List<JPanel> cards) {
+                for (JPanel card : cards) {
+                    contentPanel.add(card);
+                }
+                contentPanel.revalidate();
+                contentPanel.repaint();
+            }
+
+        }.execute();
+    }
+
+    private static JPanel createModCard(String name, String summary, String iconUrl, int modId, long downloads) {
+
+        Color Cliont = new Color(188, 19, 254);
+
+        JPanel card = new JPanel(new BorderLayout());
+        card.setMaximumSize(new Dimension(Integer.MAX_VALUE, 120));
+        card.setBackground(CARD);
+        card.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(new Color(70, 70, 70)),
+                BorderFactory.createEmptyBorder(10, 10, 10, 10)
+        ));
+
+        card.addMouseListener(new MouseAdapter() {
+            public void mouseEntered(MouseEvent e) { card.setBackground(HOVER); }
+            public void mouseExited(MouseEvent e) { card.setBackground(CARD); }
+        });
+
+        JLabel iconLabel = new JLabel();
+        iconLabel.setPreferredSize(new Dimension(80, 80));
+        if (iconUrl != null) {
+            try {
+                InputStream in = new URL(iconUrl).openStream();
+                Image img = ImageIO.read(in).getScaledInstance(80, 80, Image.SCALE_SMOOTH);
+                iconLabel.setIcon(new ImageIcon(img));
+            } catch (Exception ignored) {}
+        }
+        card.add(iconLabel, BorderLayout.WEST);
+
+        JPanel textPanel = new JPanel();
+        textPanel.setLayout(new BoxLayout(textPanel, BoxLayout.Y_AXIS));
+        textPanel.setBackground(CARD);
+
+        JLabel nameLabel = new JLabel(name);
+        nameLabel.setFont(new Font("Arial", Font.BOLD, 16));
+        nameLabel.setForeground(Color.WHITE);
+
+        JLabel summaryLabel = new JLabel("<html><body style='width:450px'>" + summary + "</body></html>");
+        summaryLabel.setForeground(Color.LIGHT_GRAY);
+
+        JLabel downloadLabel = new JLabel(NumberFormat.getInstance().format(downloads) + " downloads");
+        downloadLabel.setForeground(Cliont);
+
+        textPanel.add(nameLabel);
+        textPanel.add(summaryLabel);
+        textPanel.add(downloadLabel);
+        card.add(textPanel, BorderLayout.CENTER);
+
+        JButton installButton = new JButton("Install");
+        installButton.setBackground(Cliont);
+        installButton.addActionListener(e -> downloadLatestFile(modId));
+        card.add(installButton, BorderLayout.EAST);
+
+        return card;
+    }
+
+    private static void downloadLatestFile(int modId) {
+        try {
+            String url = "https://api.curseforge.com/v1/mods/" + modId + "/files";
 
             HttpClient client = HttpClient.newHttpClient();
             HttpRequest request = HttpRequest.newBuilder()
                     .uri(URI.create(url))
                     .header("x-api-key", API_KEY)
-                    .header("Accept", "application/json")
                     .GET()
                     .build();
 
-            HttpResponse<String> response =
-                    client.send(request, HttpResponse.BodyHandlers.ofString());
-
-            if (response.statusCode() != 200) {
-                JOptionPane.showMessageDialog(null,
-                        "Fehler beim Laden: " + response.statusCode());
-                return;
-            }
-
-            JsonObject root = JsonParser.parseString(response.body()).getAsJsonObject();
-            JsonArray data = root.getAsJsonArray("data");
-
-            for (JsonElement element : data) {
-
-                JsonObject mod = element.getAsJsonObject();
-
-                String name = mod.get("name").getAsString();
-                String summary = mod.get("summary").getAsString();
-                int modId = mod.get("id").getAsInt();
-
-                String iconUrl = null;
-                if (mod.has("logo") && !mod.get("logo").isJsonNull()) {
-                    iconUrl = mod.getAsJsonObject("logo")
-                            .get("thumbnailUrl").getAsString();
-                }
-
-                JPanel card = createModCard(name, summary, iconUrl, modId);
-                contentPanel.add(card);
-            }
-
-            contentPanel.revalidate();
-            contentPanel.repaint();
-
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
-    }
-
-    // ---------- CREATE CARD ----------
-    private static JPanel createModCard(String name, String summary, String iconUrl, int modId) {
-
-        JPanel card = new JPanel(new BorderLayout());
-        card.setMaximumSize(new Dimension(Integer.MAX_VALUE, 140));
-        card.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
-        card.setBackground(new Color(45, 45, 45));
-
-        // Icon
-        JLabel iconLabel = new JLabel();
-        iconLabel.setPreferredSize(new Dimension(100, 100));
-
-        if (iconUrl != null) {
-            try (InputStream in = new URL(iconUrl).openStream()) {
-                Image img = ImageIO.read(in)
-                        .getScaledInstance(100, 100, Image.SCALE_SMOOTH);
-                iconLabel.setIcon(new ImageIcon(img));
-            } catch (Exception ignored) {}
-        }
-
-        card.add(iconLabel, BorderLayout.WEST);
-
-        // Text
-        JPanel textPanel = new JPanel();
-        textPanel.setLayout(new BoxLayout(textPanel, BoxLayout.Y_AXIS));
-        textPanel.setBackground(new Color(45, 45, 45));
-
-        JLabel nameLabel = new JLabel(name);
-        nameLabel.setForeground(Color.WHITE);
-        nameLabel.setFont(new Font("Arial", Font.BOLD, 18));
-
-        JLabel summaryLabel = new JLabel(
-                "<html><body style='width:500px'>" + summary + "</body></html>");
-        summaryLabel.setForeground(Color.LIGHT_GRAY);
-
-        textPanel.add(nameLabel);
-        textPanel.add(summaryLabel);
-
-        card.add(textPanel, BorderLayout.CENTER);
-
-        // Download Button
-        JButton downloadButton = new JButton("Download");
-        downloadButton.addActionListener(e -> downloadLatestFile(modId));
-        card.add(downloadButton, BorderLayout.EAST);
-
-        return card;
-    }
-
-    // ---------- DOWNLOAD ----------
-    private static void downloadLatestFile(int modId) {
-        try {
-            String fileUrl = "https://api.curseforge.com/v1/mods/" + modId + "/files";
-
-            HttpClient client = HttpClient.newHttpClient();
-            HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(fileUrl))
-                    .header("x-api-key", API_KEY)
-                    .header("Accept", "application/json")
-                    .GET()
-                    .build();
-
-            HttpResponse<String> response =
-                    client.send(request, HttpResponse.BodyHandlers.ofString());
-
+            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
             JsonObject root = JsonParser.parseString(response.body()).getAsJsonObject();
             JsonArray files = root.getAsJsonArray("data");
 
             if (files.size() == 0) {
-                JOptionPane.showMessageDialog(null, "Keine Dateien gefunden.");
+                JOptionPane.showMessageDialog(null, "No files found");
                 return;
             }
 
-            JsonObject latestFile = files.get(0).getAsJsonObject();
-            String downloadUrl = latestFile.get("downloadUrl").getAsString();
-            String fileName = latestFile.get("fileName").getAsString();
-
-            if (downloadUrl == null || downloadUrl.isEmpty()) {
-                JOptionPane.showMessageDialog(null, "Keine Download-URL.");
-                return;
-            }
+            JsonObject file = files.get(0).getAsJsonObject();
+            String downloadUrl = file.get("downloadUrl").getAsString();
+            String fileName = file.get("fileName").getAsString();
 
             downloadFile(downloadUrl, fileName);
 
@@ -231,17 +250,12 @@ public class CurseForgeBrowser {
                     .GET()
                     .build();
 
-            HttpResponse<InputStream> response =
-                    client.send(request, HttpResponse.BodyHandlers.ofInputStream());
-
-            String userHome = System.getProperty("user.home");
-            Path path = Path.of(userHome, "Downloads", fileName);
-
+            HttpResponse<InputStream> response = client.send(request, HttpResponse.BodyHandlers.ofInputStream());
+            Path path = Path.of(System.getProperty("user.home"), "Downloads", fileName);
             Files.createDirectories(path.getParent());
             Files.copy(response.body(), path, StandardCopyOption.REPLACE_EXISTING);
 
-            JOptionPane.showMessageDialog(null,
-                    "Download fertig:\n" + path.toAbsolutePath());
+            JOptionPane.showMessageDialog(null, "Downloaded to:\n" + path);
 
         } catch (Exception e) {
             e.printStackTrace();
