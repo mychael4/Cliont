@@ -6,11 +6,13 @@ import java.net.http.HttpResponse;
 
 public class DownloadUtil {
 
+
     private static final HttpClient client =
             HttpClient.newBuilder().build();
 
     public static InputStream download(String url) throws Exception {
 
+        System.out.println("Is used");
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create(url))
                 .GET()

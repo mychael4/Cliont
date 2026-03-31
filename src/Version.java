@@ -1,4 +1,7 @@
 import com.google.gson.*;
+import com.google.gson.stream.JsonReader;
+
+import javax.net.ssl.SSLContext;
 import javax.swing.*;
 import java.awt.*;
 import java.io.*;
@@ -13,8 +16,8 @@ public class Version {
     static JPanel profileGrid;
     static CardLayout layout;
 
-
     public static JPanel create() throws IOException, FontFormatException {
+
 
         layout = new CardLayout();
         mainPanel = new JPanel(layout);
@@ -235,7 +238,9 @@ public class Version {
 
                 URL url = new URL("https://piston-meta.mojang.com/mc/game/version_manifest_v2.json");
 
-                HttpClient client = HttpClient.newHttpClient();
+                HttpClient client = HttpClient.newBuilder()
+                        .sslContext(SSLContext.getDefault())
+                        .build();
 
                 HttpRequest request = HttpRequest.newBuilder()
                         .uri(URI.create("https://piston-meta.mojang.com/mc/game/version_manifest_v2.json"))
@@ -279,8 +284,13 @@ public class Version {
 
                 Files.createDirectories(profileDir);
 
-                // aktuell nur Vanilla download
-                downloadVanilla(version, profileDir);
+                //Aktuell nur Vanilla und Fabric
+                if (loader.equals("Vanilla")) {
+                    downloadVanilla(version, profileDir);
+                }
+                else if (loader.equals("Fabric")) {
+                    downloadFabric(version, profileDir);
+                }
 
                 layout.show(mainPanel, "profiles");
                 loadProfiles();
@@ -302,7 +312,9 @@ public class Version {
 
         JsonArray libs = versionJson.getAsJsonArray("libraries");
 
-        HttpClient client = HttpClient.newHttpClient();
+        HttpClient client = HttpClient.newBuilder()
+                .sslContext(SSLContext.getDefault())
+                .build();
 
         for (JsonElement libElement : libs) {
 
@@ -312,42 +324,81 @@ public class Version {
 
             JsonObject downloads = lib.getAsJsonObject("downloads");
 
-            if (!downloads.has("artifact")) continue;
+            // ===== NORMALER ARTIFACT =====
+            if (downloads.has("artifact")) {
 
-            JsonObject artifact = downloads.getAsJsonObject("artifact");
+                JsonObject artifact = downloads.getAsJsonObject("artifact");
 
-            String url = artifact.get("url").getAsString();
-            String path = artifact.get("path").getAsString();
+                String url = artifact.get("url").getAsString();
+                String path = artifact.get("path").getAsString();
 
-            Path libPath = mcDir.resolve("libraries").resolve(path);
+                Path libPath = mcDir.resolve("libraries").resolve(path);
 
-            if (Files.exists(libPath)) continue;
+                if (!Files.exists(libPath)) {
+                    Files.createDirectories(libPath.getParent());
 
-            Files.createDirectories(libPath.getParent());
+                    HttpRequest request = HttpRequest.newBuilder()
+                            .uri(URI.create(url))
+                            .build();
 
-            HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(url))
-                    .build();
+                    HttpResponse<InputStream> response =
+                            client.send(request, HttpResponse.BodyHandlers.ofInputStream());
 
-            HttpResponse<InputStream> response =
-                    client.send(request, HttpResponse.BodyHandlers.ofInputStream());
+                    Files.copy(response.body(), libPath, StandardCopyOption.REPLACE_EXISTING);
 
-            Files.copy(
-                    response.body(),
-                    libPath,
-                    StandardCopyOption.REPLACE_EXISTING
-            );
+                    System.out.println("Downloaded library: " + path);
+                }
+            }
 
-            System.out.println("Downloaded library: " + path);
+            // ===== 🔥 NATIVES (DAS HAT GEFehlt) =====
+            if (lib.has("natives") && downloads.has("classifiers")) {
+
+                String nativeKey = MinecraftLauncher.getNativeClassifierKey(lib);
+
+                if (nativeKey != null) {
+                    nativeKey = MinecraftLauncher.resolveClassifierKey(nativeKey);
+
+                    JsonObject classifiers = downloads.getAsJsonObject("classifiers");
+
+                    if (classifiers.has(nativeKey)) {
+
+                        JsonObject classifier = classifiers.getAsJsonObject(nativeKey);
+
+                        String url = classifier.get("url").getAsString();
+                        String path = classifier.get("path").getAsString();
+
+                        Path libPath = mcDir.resolve("libraries").resolve(path);
+
+                        if (!Files.exists(libPath)) {
+                            Files.createDirectories(libPath.getParent());
+
+                            HttpRequest request = HttpRequest.newBuilder()
+                                    .uri(URI.create(url))
+                                    .build();
+
+                            HttpResponse<InputStream> response =
+                                    client.send(request, HttpResponse.BodyHandlers.ofInputStream());
+
+                            Files.copy(response.body(), libPath, StandardCopyOption.REPLACE_EXISTING);
+
+                            System.out.println("🔥 Downloaded native: " + path);
+                        }
+
+                    } else {
+                        System.out.println("Native classifier fehlt: " + nativeKey);
+                    }
+                }
+            }
         }
     }
-
     // ================================
     // DOWNLOAD VANILLA
     // ================================
     static void downloadVanilla(String version, Path profileDir) throws Exception {
 
-        HttpClient client = HttpClient.newHttpClient();
+        HttpClient client = HttpClient.newBuilder()
+                .sslContext(SSLContext.getDefault())
+                .build();
 
         HttpRequest manifestRequest = HttpRequest.newBuilder()
                 .uri(URI.create("https://piston-meta.mojang.com/mc/game/version_manifest_v2.json"))
@@ -384,9 +435,10 @@ public class Version {
         HttpResponse<InputStream> versionResponse =
                 client.send(versionRequest, HttpResponse.BodyHandlers.ofInputStream());
 
-        JsonObject versionJson = JsonParser.parseReader(
-                new InputStreamReader(versionResponse.body())
-        ).getAsJsonObject();
+        JsonReader versionReader = new JsonReader(new InputStreamReader(versionResponse.body()));
+        versionReader.setLenient(true);  // <- HIER
+
+        JsonObject versionJson = JsonParser.parseReader(versionReader).getAsJsonObject();
 
         try (FileWriter writer = new FileWriter(
                 profileDir.resolve("version.json").toFile())) {
@@ -416,4 +468,75 @@ public class Version {
         );
         downloadLibraries(versionJson, profileDir);
     }
-}
+
+    static void downloadFabric(String version, Path profileDir) throws Exception {
+
+        SSLFix.apply();
+        // 1. Vanilla als Basis
+        downloadVanilla(version, profileDir);
+
+        // 2. Loader Version holen
+        String loaderVersion = getLatestFabricLoader();
+
+        // 3. Fabric JSON laden
+        String url = "https://meta.fabricmc.net/v2/versions/loader/"
+                + version + "/" + loaderVersion + "/profile/json";
+
+        HttpClient client = HttpClient.newBuilder()
+                .sslContext(SSLContext.getDefault())
+                .build();
+
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create(url))
+                .build();
+
+        HttpResponse<InputStream> response =
+                client.send(request, HttpResponse.BodyHandlers.ofInputStream());
+
+        JsonReader fabricReader = new JsonReader(new InputStreamReader(response.body()));
+        fabricReader.setLenient(true);  // <- HIER
+
+        JsonObject fabricJson = JsonParser.parseReader(fabricReader).getAsJsonObject();
+
+        // speichern
+        try (FileWriter writer = new FileWriter(
+                profileDir.resolve("fabric.json").toFile())) {
+
+            new GsonBuilder().setPrettyPrinting()
+                    .create()
+                    .toJson(fabricJson, writer);
+        }
+
+        // Libraries laden (Fabric + zusätzliche)
+        downloadLibraries(fabricJson, profileDir);
+    }
+
+    static String getLatestFabricLoader() throws Exception {
+
+        String url = "https://meta.fabricmc.net/v2/versions/loader";
+
+        HttpClient client = HttpClient.newBuilder()
+                .sslContext(SSLContext.getDefault())
+                .build();
+
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create(url))
+                .build();
+
+        HttpResponse<InputStream> response =
+                client.send(request, HttpResponse.BodyHandlers.ofInputStream());
+
+        JsonArray arr = JsonParser.parseReader(
+                new InputStreamReader(response.body())
+        ).getAsJsonArray();
+
+        for (JsonElement el : arr) {
+            JsonObject obj = el.getAsJsonObject();
+
+            if (obj.has("stable") && obj.get("stable").getAsBoolean()) {
+                return obj.get("version").getAsString();
+            }
+        }
+
+        return arr.get(0).getAsJsonObject().get("version").getAsString();
+    }}

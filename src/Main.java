@@ -10,7 +10,7 @@ public class Main {
     public static void main(String[] args) throws Exception {
 
         // SSL Fix
-        SSLFix.disableSSLVerification();
+        SSLFix.apply();
 
         JPanel centerPanel = new JPanel(new CardLayout());
         JPanel content = Content.create();
