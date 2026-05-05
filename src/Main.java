@@ -12,10 +12,14 @@ public class Main {
         // SSL Fix
         SSLFix.apply();
 
+        String clientId = "7e586d58-68df-44a5-a89e-989cf2bae411";
+        String redirectUri = "https://cliont.com"; // Muss exakt wie im Azure-Portal sein
+        String scope = "XboxLive.signin%20offline_access";
+
         JPanel centerPanel = new JPanel(new CardLayout());
         JPanel content = Content.create();
         JPanel version = Version.create();
-        JPanel mods = CurseForgeBrowser.create();
+        JPanel mods = Mods.create();
 
         Color Cliont = new Color(188, 19, 254);
         Color sideBarColor = new Color(34,34,34);
@@ -48,7 +52,7 @@ public class Main {
 
         JButton homebutton = createSidebarButton("Home",mcFont,buttonColor,buttonSize);
         JButton modsbutton = createSidebarButton("Mods",mcFont,buttonColor,buttonSize);
-        JButton versionsbutton = createSidebarButton("Versions",mcFont,buttonColor,buttonSize);
+        JButton versionsbutton = createSidebarButton("Profiles",mcFont,buttonColor,buttonSize);
 
         versionsbutton.addActionListener(e -> {
             content.setVisible(false);

@@ -30,6 +30,167 @@ public class Version {
         return mainPanel;
     }
 
+    static JPanel createProfileView(Path profilePath) {
+
+        Color bg = new Color(43, 43, 43);
+        Color Cliont = new Color(188, 19, 254);
+
+        JPanel root = new JPanel(new BorderLayout());
+        root.setBackground(bg);
+
+        JButton back = new JButton("←");
+        back.setBackground(Cliont);
+
+        back.addActionListener(e -> {
+            layout.show(mainPanel, "profiles");
+        });
+
+        // =========================
+        // 🔥 HEADER (wie CurseForge)
+        // =========================
+        JPanel header = new JPanel(new BorderLayout());
+        header.setBackground(new Color(60, 60, 60));
+        header.setBorder(BorderFactory.createEmptyBorder(10,10,10,10));
+
+        // ICON
+        ImageIcon icon = new ImageIcon(Version.class.getResource("/Icon.png"));
+        JLabel img = new JLabel(new ImageIcon(
+                icon.getImage().getScaledInstance(64, 64, Image.SCALE_SMOOTH)
+        ));
+
+        // NAME
+        JLabel name = new JLabel(profilePath.getFileName().toString());
+        name.setForeground(Color.WHITE);
+        name.setFont(new Font("Arial", Font.BOLD, 18));
+
+        JPanel left = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        left.setBackground(header.getBackground());
+        left.add(back); // GANZ LINKS vor dem Icon
+        left.add(img);
+        left.add(name);
+
+        // START BUTTON
+        JButton start = new JButton("Start");
+        start.setSize(50, 20);
+        start.setBackground(Cliont);
+
+        start.addActionListener(e -> {
+            try {
+                MinecraftLauncher.setVersion(profilePath.getFileName().toString());
+                MinecraftLauncher.launch();
+            } catch (Exception ex) {
+                ex.printStackTrace();
+            }
+        });
+
+        header.add(left, BorderLayout.WEST);
+        header.add(start, BorderLayout.EAST);
+
+        root.add(header, BorderLayout.NORTH);
+
+        // =========================
+        // 🔍 SEARCH BAR + BUTTON
+        // =========================
+        JPanel topBar = new JPanel(new BorderLayout());
+        topBar.setBackground(bg);
+
+        JTextField search = new JTextField();
+        JButton addMod = new JButton("+");
+
+        topBar.add(search, BorderLayout.CENTER);
+        topBar.add(addMod, BorderLayout.EAST);
+
+        root.add(topBar, BorderLayout.SOUTH);
+
+        // =========================
+        // 📦 MOD LIST
+        // =========================
+        JPanel modsPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        modsPanel.setBackground(bg);
+
+        JScrollPane scroll = new JScrollPane(modsPanel);
+        root.add(scroll, BorderLayout.CENTER);
+
+        // =========================
+        // 🔥 MODS LADEN
+        // =========================
+        Path modsDir = profilePath.resolve("mods");
+
+        try {
+            if (!Files.exists(modsDir))
+                Files.createDirectories(modsDir);
+
+            Files.list(modsDir).forEach(mod -> {
+
+                modsPanel.add(createModCard(mod));
+
+            });
+
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+
+        // =========================
+        // 🔍 SEARCH FILTER
+        // =========================
+        search.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
+
+            void filter() {
+                String text = search.getText().toLowerCase();
+
+                modsPanel.removeAll();
+
+                try {
+                    Files.list(modsDir).forEach(mod -> {
+                        if (mod.getFileName().toString().toLowerCase().contains(text)) {
+                            modsPanel.add(createModCard(mod));
+                        }
+                    });
+                } catch (IOException e) {
+                    e.printStackTrace();
+                }
+
+                modsPanel.revalidate();
+                modsPanel.repaint();
+            }
+
+            public void insertUpdate(javax.swing.event.DocumentEvent e) { filter(); }
+            public void removeUpdate(javax.swing.event.DocumentEvent e) { filter(); }
+            public void changedUpdate(javax.swing.event.DocumentEvent e) { filter(); }
+        });
+
+        return root;
+    }
+
+    static JPanel createModCard(Path modPath) {
+
+        JPanel card = new JPanel(new BorderLayout());
+        card.setPreferredSize(new Dimension(120, 140));
+        card.setBackground(new Color(70, 70, 70));
+
+        // 🔥 Fake Icon (später aus .jar lesen möglich)
+        ImageIcon icon = new ImageIcon(Version.class.getResource("/Icon.png"));
+        JLabel img = new JLabel(new ImageIcon(
+                icon.getImage().getScaledInstance(100, 100, Image.SCALE_SMOOTH)
+        ));
+
+        JLabel name = new JLabel(modPath.getFileName().toString(), SwingConstants.CENTER);
+        name.setForeground(Color.WHITE);
+
+        card.add(img, BorderLayout.NORTH);
+        card.add(name, BorderLayout.SOUTH);
+
+        return card;
+    }
+
+    static void openProfileView(Path profilePath) {
+
+        JPanel panel = createProfileView(profilePath);
+
+        mainPanel.add(panel, "profile_" + profilePath.getFileName());
+        layout.show(mainPanel, "profile_" + profilePath.getFileName());
+    }
+
     // ================================
     // PROFILE PANEL
     // ================================
@@ -115,11 +276,18 @@ public class Version {
 
         Color Cliont = new Color(188, 19, 254);
 
-        JPanel card = new JPanel();
-        card.setPreferredSize(new Dimension(180, 240)); // 3:4
-        card.setLayout(new BorderLayout());
+        JPanel card = new JPanel(new BorderLayout());
+        card.setPreferredSize(new Dimension(180, 240));
         card.setBackground(new Color(60, 60, 60));
         card.setBorder(BorderFactory.createLineBorder(new Color(80, 80, 80)));
+
+        // 🔥 ICON LADEN
+        ImageIcon icon = new ImageIcon(
+                Version.class.getResource("/Icon.png")
+        );
+
+        Image scaled = icon.getImage().getScaledInstance(160, 160, Image.SCALE_SMOOTH);
+        JLabel iconLabel = new JLabel(new ImageIcon(scaled));
 
         JLabel name = new JLabel(profilePath.getFileName().toString(), SwingConstants.CENTER);
         name.setForeground(Color.WHITE);
@@ -128,18 +296,22 @@ public class Version {
         start.setBackground(Cliont);
 
         start.addActionListener(e -> {
-
             try {
-
                 MinecraftLauncher.setVersion(profilePath.getFileName().toString());
                 MinecraftLauncher.launch();
-
             } catch (Exception ex) {
                 ex.printStackTrace();
             }
-
         });
 
+        // 🔥 CLICK → OPEN PROFILE VIEW
+        card.addMouseListener(new java.awt.event.MouseAdapter() {
+            public void mouseClicked(java.awt.event.MouseEvent evt) {
+                openProfileView(profilePath);
+            }
+        });
+
+        card.add(iconLabel, BorderLayout.NORTH);
         card.add(name, BorderLayout.CENTER);
         card.add(start, BorderLayout.SOUTH);
 
@@ -283,6 +455,15 @@ public class Version {
                         ".cliont", "profiles", name);
 
                 Files.createDirectories(profileDir);
+
+                JsonObject profileJson = new JsonObject();
+                profileJson.addProperty("name", name);
+                profileJson.addProperty("version", version);
+                profileJson.addProperty("loader", loader);
+
+                try (FileWriter writer = new FileWriter(profileDir.resolve("profile.json").toFile())) {
+                    new GsonBuilder().setPrettyPrinting().create().toJson(profileJson, writer);
+                }
 
                 //Aktuell nur Vanilla und Fabric
                 if (loader.equals("Vanilla")) {

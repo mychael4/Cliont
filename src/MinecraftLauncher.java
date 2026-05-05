@@ -139,9 +139,6 @@ public class MinecraftLauncher {
                             } else {
                                 System.out.println("Classifier fehlt: " + nativeKey);
                             }
-
-                        } else {
-                            System.out.println("Keine classifiers in downloads für: " + lib.get("name"));
                         }
                     }
                 }
