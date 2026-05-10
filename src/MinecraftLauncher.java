@@ -40,9 +40,6 @@ public class MinecraftLauncher {
             System.out.println("Fabric-Profil erkannt");
         }
 
-        // ===== Vanilla Downloads =====
-        downloadLogging(vanillaJson, profileDir);
-        downloadAssets(vanillaJson, profileDir);
 
         // ===== Libraries zusammenführen =====
         JsonArray libraries = mergeLibraries(vanillaJson, launchJson);
@@ -60,129 +57,6 @@ public class MinecraftLauncher {
 
         Set<String> addedLibs = new HashSet<>();
 
-        for (JsonElement libEl : libraries) {
-
-            JsonObject lib = libEl.getAsJsonObject();
-
-            if (!isLibraryAllowed(lib)) continue;
-
-            String artifactPath = null;
-            String artifactUrl = null;
-
-
-            if (lib.has("downloads")) {
-                JsonObject downloads = lib.getAsJsonObject("downloads");
-
-                // ===== Normale Library =====
-                if (downloads.has("artifact")) {
-                    JsonObject artifact = downloads.getAsJsonObject("artifact");
-
-                    String path = artifact.get("path").getAsString();
-                    String url = artifact.get("url").getAsString();
-
-                    String fileName = Paths.get(path).getFileName().toString();
-
-                    if (!addedLibs.contains(fileName)) {
-                        addedLibs.add(fileName);
-
-                        Path libFile = profileDir.resolve("libraries").resolve(path);
-
-                        if (!Files.exists(libFile) || Files.size(libFile) == 0) {
-                            System.out.println("Download library: " + path);
-                            Files.createDirectories(libFile.getParent());
-
-                            try (InputStream in = new URL(url).openStream()) {
-                                Files.copy(in, libFile, StandardCopyOption.REPLACE_EXISTING);
-                            }
-                        }
-
-                        if (Files.exists(libFile)) {
-                            classpathEntries.add(libFile.toAbsolutePath().toString());
-                        }
-                    }
-                }
-
-                // ===== Natives nur wenn die Library wirklich natives hat =====
-                if (lib.has("natives") && lib.has("downloads")) {
-
-                    String nativeKey = getNativeClassifierKey(lib);
-
-                    if (nativeKey != null) {
-                        nativeKey = resolveClassifierKey(nativeKey);
-
-                        if (downloads.has("classifiers")) {
-
-                            JsonObject classifiers = downloads.getAsJsonObject("classifiers");
-
-                            if (classifiers.has(nativeKey)) {
-
-                                JsonObject classifier = classifiers.getAsJsonObject(nativeKey);
-
-                                String nativePath = classifier.get("path").getAsString();
-                                String url = classifier.get("url").getAsString();
-
-                                Path nativeJar = profileDir.resolve("libraries").resolve(nativePath);
-
-                                // DOWNLOAD
-                                if (!Files.exists(nativeJar)) {
-                                    System.out.println("Download native: " + nativePath);
-                                    Files.createDirectories(nativeJar.getParent());
-
-                                    try (InputStream in = new URL(url).openStream()) {
-                                        Files.copy(in, nativeJar, StandardCopyOption.REPLACE_EXISTING);
-                                    }
-                                }
-
-                                // UNPACK
-                                unpackNatives(nativeJar, nativesDir);
-
-                            } else {
-                                System.out.println("Classifier fehlt: " + nativeKey);
-                            }
-                        }
-                    }
-                }
-            }
-
-            // ===== Falls kein downloads.artifact vorhanden: aus Maven bauen =====
-            if (artifactPath == null && lib.has("name")) {
-                artifactPath = mavenToPath(lib.get("name").getAsString());
-
-                String baseUrl = "https://libraries.minecraft.net/";
-                if (lib.has("url")) {
-                    baseUrl = lib.get("url").getAsString();
-                }
-
-                if (!baseUrl.endsWith("/")) {
-                    baseUrl += "/";
-                }
-
-                artifactUrl = baseUrl + artifactPath;
-            }
-
-            // ===== Artifact herunterladen + in Classpath =====
-            if (artifactPath != null && addedLibs.add(artifactPath)) {
-                Path libFile = profileDir.resolve("libraries").resolve(artifactPath);
-
-                if (!Files.exists(libFile) && artifactUrl != null) {
-                    System.out.println("Download library: " + artifactPath);
-                    Files.createDirectories(libFile.getParent());
-
-                    try (InputStream in = new URL(artifactUrl).openStream()) {
-                        Files.copy(in, libFile, StandardCopyOption.REPLACE_EXISTING);
-                    }
-                }
-
-                if (Files.exists(libFile)) {
-                    classpathEntries.add(libFile.toAbsolutePath().toString());
-                } else {
-                    System.out.println("Library fehlt: " + libFile);
-                }
-            }
-        }
-
-        System.out.println("=== EXTRACT ALL NATIVES FROM LIBRARIES ===");
-        extractAllNatives(profileDir.resolve("libraries"), nativesDir);
 
         // ===== Client-JAR hinzufügen =====
         Path clientJar = profileDir.resolve("client.jar");
@@ -190,6 +64,38 @@ public class MinecraftLauncher {
             throw new FileNotFoundException("Client.jar fehlt im Profil: " + clientJar);
         }
         classpathEntries.add(clientJar.toAbsolutePath().toString());
+
+        for (JsonElement libEl : libraries) {
+
+            JsonObject lib = libEl.getAsJsonObject();
+
+            String path = null;
+
+            // 1. Versuche artifact path (Standard)
+            if (lib.has("downloads")) {
+                JsonObject downloads = lib.getAsJsonObject("downloads");
+
+                if (downloads.has("artifact")) {
+                    path = downloads.getAsJsonObject("artifact")
+                            .get("path").getAsString();
+                }
+            }
+
+            // 2. Fallback: Maven path
+            if (path == null && lib.has("name")) {
+                path = mavenToPath(lib.get("name").getAsString());
+            }
+
+            if (path == null) continue;
+
+            Path libFile = profileDir.resolve("libraries").resolve(path);
+
+            if (Files.exists(libFile)) {
+                classpathEntries.add(libFile.toAbsolutePath().toString());
+            } else {
+                System.out.println("Fehlende Library: " + path);
+            }
+        }
 
         System.out.println("=== MAIN CLASS ===");
         System.out.println(mainClass);
@@ -200,14 +106,15 @@ public class MinecraftLauncher {
         System.out.println("=== CLASSPATH ENTRIES ===");
         for (String entry : classpathEntries) {
             System.out.println(entry);
+            System.out.println("Classpath size: " + classpathEntries.size());
         }
 
-        String classpath = String.join(";", classpathEntries);
+        String classpath = String.join(File.pathSeparator, classpathEntries);
 
         // ===== Java Command =====
         List<String> command = new ArrayList<>();
 
-        Path javaExe = getJavaRuntime(vanillaJson);
+        Path javaExe = Version.getJavaRuntime(vanillaJson);
 
         command.add(javaExe.toAbsolutePath().toString());
         command.add("-Djava.library.path=" + nativesDir.toAbsolutePath());
@@ -237,142 +144,8 @@ public class MinecraftLauncher {
                 .start();
     }
 
-    private static void downloadAssets(JsonObject versionJson, Path profileDir) throws Exception {
 
-        JsonObject assetIndexObj = versionJson.getAsJsonObject("assetIndex");
-
-        String url = assetIndexObj.get("url").getAsString();
-        String id = assetIndexObj.get("id").getAsString();
-
-        Path assetsDir = profileDir.resolve("assets");
-        Path indexDir = assetsDir.resolve("indexes");
-        Path objectsDir = assetsDir.resolve("objects");
-
-        Files.createDirectories(indexDir);
-        Files.createDirectories(objectsDir);
-
-        Path indexFile = indexDir.resolve(id + ".json");
-
-        if (!Files.exists(indexFile)) {
-            try (InputStream in = new URL(url).openStream()) {
-                Files.copy(in, indexFile, StandardCopyOption.REPLACE_EXISTING);
-            }
-        }
-
-        JsonObject indexJson = JsonParser.parseReader(new FileReader(indexFile.toFile())).getAsJsonObject();
-        JsonObject objects = indexJson.getAsJsonObject("objects");
-
-        for (String name : objects.keySet()) {
-            JsonObject obj = objects.getAsJsonObject(name);
-
-            String hash = obj.get("hash").getAsString();
-            String sub = hash.substring(0, 2);
-
-            Path assetFile = objectsDir.resolve(sub).resolve(hash);
-
-            if (Files.exists(assetFile)) continue;
-
-            Files.createDirectories(assetFile.getParent());
-
-            String assetUrl = "https://resources.download.minecraft.net/" + sub + "/" + hash;
-
-            try (InputStream in = new URL(assetUrl).openStream()) {
-                Files.copy(in, assetFile, StandardCopyOption.REPLACE_EXISTING);
-            }
-        }
-    }
-
-    private static void unpackNatives(Path jarFile, Path nativesDir) throws IOException {
-        System.out.println("jarFile = " + jarFile);
-
-        if (!Files.exists(jarFile) || Files.size(jarFile) == 0) {
-            System.out.println("Native JAR fehlt oder ist leer: " + jarFile);
-            return;
-        }
-
-        Files.createDirectories(nativesDir);
-
-        boolean foundNative = false;
-
-        try (ZipInputStream zis = new ZipInputStream(Files.newInputStream(jarFile))) {
-            ZipEntry entry;
-
-            while ((entry = zis.getNextEntry()) != null) {
-                if (entry.isDirectory()) continue;
-
-                String name = entry.getName();
-
-                if (name.startsWith("META-INF/")) continue;
-
-                String lower = name.toLowerCase();
-
-                if (!(lower.endsWith(".dll") || lower.endsWith(".so") || lower.endsWith(".dylib"))) {
-                    continue;
-                }
-
-                foundNative = true;
-
-                Path outFile = nativesDir.resolve(Paths.get(name).getFileName().toString());
-
-                System.out.println("Extract native file: " + outFile.getFileName());
-
-                Files.copy(zis, outFile, StandardCopyOption.REPLACE_EXISTING);
-            }
-        }
-
-        if (!foundNative) {
-            System.out.println("Keine Natives gefunden in: " + jarFile.getFileName());
-        }
-    }
-    private static Path getJavaRuntime(JsonObject versionJson) throws Exception {
-
-        int javaVersion = 8;
-
-        if (versionJson.has("javaVersion")) {
-            javaVersion = versionJson
-                    .getAsJsonObject("javaVersion")
-                    .get("majorVersion")
-                    .getAsInt();
-        }
-
-        Path runtimeDir = Paths.get(System.getenv("APPDATA"), ".cliont", "runtimes", "java" + javaVersion);
-        Path javaExe = runtimeDir.resolve("bin").resolve("java.exe");
-
-        if (Files.exists(javaExe)) return javaExe;
-
-        String url;
-
-        if (javaVersion == 8) {
-            url = "https://api.adoptium.net/v3/binary/latest/8/ga/windows/x64/jre/hotspot/normal/eclipse";
-        } else if (javaVersion == 17) {
-            url = "https://api.adoptium.net/v3/binary/latest/17/ga/windows/x64/jre/hotspot/normal/eclipse";
-        } else {
-            url = "https://api.adoptium.net/v3/binary/latest/21/ga/windows/x64/jre/hotspot/normal/eclipse";
-        }
-
-        Path zip = runtimeDir.resolve("java.zip");
-        Files.createDirectories(runtimeDir);
-
-        try (InputStream in = new URL(url).openStream()) {
-            Files.copy(in, zip, StandardCopyOption.REPLACE_EXISTING);
-        }
-
-        unzip(zip, runtimeDir);
-        Files.delete(zip);
-
-        try (DirectoryStream<Path> dirs = Files.newDirectoryStream(runtimeDir)) {
-            for (Path dir : dirs) {
-                javaExe = dir.resolve("bin").resolve("java.exe");
-                if (Files.exists(javaExe)) {
-                    return javaExe;
-                }
-            }
-        }
-
-        throw new RuntimeException("Java runtime not found after extraction");
-    }
-
-    private static void unzip(Path zipFile, Path targetDir) throws IOException {
+    static void unzip(Path zipFile, Path targetDir) throws IOException {
 
         try (ZipInputStream zis = new ZipInputStream(Files.newInputStream(zipFile))) {
             ZipEntry entry;
@@ -395,30 +168,6 @@ public class MinecraftLauncher {
                     }
                 }
             }
-        }
-    }
-
-    private static void downloadLogging(JsonObject versionJson, Path profileDir) throws Exception {
-
-        if (!versionJson.has("logging")) return;
-
-        JsonObject logging = versionJson.getAsJsonObject("logging");
-        if (!logging.has("client")) return;
-
-        JsonObject client = logging.getAsJsonObject("client");
-        JsonObject file = client.getAsJsonObject("file");
-
-        String url = file.get("url").getAsString();
-        String id = file.get("id").getAsString();
-
-        Path logFile = profileDir.resolve(id);
-
-        if (Files.exists(logFile)) return;
-
-        System.out.println("Download logging config...");
-
-        try (InputStream in = new URL(url).openStream()) {
-            Files.copy(in, logFile, StandardCopyOption.REPLACE_EXISTING);
         }
     }
 
@@ -551,28 +300,5 @@ public class MinecraftLauncher {
         }
 
         return key.replace("${arch}", archValue);
-    }
-
-    private static void extractAllNatives(Path librariesDir, Path nativesDir) throws IOException {
-        if (!Files.exists(librariesDir)) {
-            System.out.println("Libraries-Ordner fehlt: " + librariesDir);
-            return;
-        }
-
-        Files.createDirectories(nativesDir);
-
-        try (var paths = Files.walk(librariesDir)) {
-            paths.filter(Files::isRegularFile)
-                    .filter(path -> path.toString().endsWith(".jar"))
-                    .forEach(jar -> {
-                        try {
-                            System.out.println("Prüfe JAR auf Natives: " + jar);
-                            unpackNatives(jar, nativesDir);
-                        } catch (IOException e) {
-                            System.out.println("Fehler beim Entpacken von: " + jar);
-                            e.printStackTrace();
-                        }
-                    });
-        }
     }
 }

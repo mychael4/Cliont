@@ -9,6 +9,8 @@ import java.net.URL;
 import java.nio.file.*;
 import java.net.URI;
 import java.net.http.*;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipInputStream;
 
 public class Version {
 
@@ -212,10 +214,59 @@ public class Version {
         title.setForeground(Cliont);
         title.setFont(mcFont);
 
-        JButton add = new JButton("+");
-        add.setFont(mcFont);
-        add.setSize(10, 10);
+        JButton add = new JButton("+") {
+            @Override
+            protected void paintComponent(Graphics g) {
+                Graphics2D g2 = (Graphics2D) g.create();
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
 
+                // Hintergrundfarbe basierend auf Status (Hover/Klick)
+                if (getModel().isArmed()) {
+                    g2.setColor(new Color(55, 55, 55)); // Dunkler beim Klicken
+                } else if (getModel().isRollover()) {
+                    g2.setColor(new Color(70, 70, 70)); // Heller beim Hover
+                } else {
+                    g2.setColor(new Color(70, 70, 70)); // Deine Standardfarbe (Cliont)
+                }
+
+                // Zeichne den Kreis
+                g2.fillOval(0, 0, getWidth() - 1, getHeight() - 1);
+
+                // Text zeichnen
+                g2.setColor(Color.WHITE);
+                g2.setFont(getFont());
+                FontMetrics fm = g2.getFontMetrics();
+                int x = (getWidth() - fm.stringWidth(getText())) / 2;
+                int y = (getHeight() + fm.getAscent()) / 2 - 2;
+                g2.drawString(getText(), x, y);
+
+                g2.dispose();
+            }
+
+            @Override
+            public Dimension getPreferredSize() {
+                return new Dimension(40, 40); // Hier stellst du die Größe ein
+            }
+
+            @Override
+            public boolean contains(int x, int y) {
+                // Macht nur den Kreis anklickbar, nicht die unsichtbaren Ecken
+                double radius = getWidth() / 2.0;
+                return Math.pow(x - radius, 2) + Math.pow(y - radius, 2) <= Math.pow(radius, 2);
+            }
+        };
+
+        add.setContentAreaFilled(false); // Verhindert das Zeichnen des Standard-Rechtecks
+        add.setBorderPainted(false);
+        add.setFocusPainted(false);
+        add.setFont(mcFont);
+
+        // ABSTAND ZUM RAND (GridBagConstraints)
+        GridBagConstraints gbcBtn = new GridBagConstraints();
+        gbcBtn.gridx = 0;
+        gbcBtn.gridy = 1; // Unter dem Text (oder 1 für rechts daneben)
+        gbcBtn.insets = new Insets(20, 20, 20, 20); // 20 Pixel Sicherheitsabstand zu allen Seiten
+        gbcBtn.anchor = GridBagConstraints.CENTER;
 
         add.addActionListener(e -> layout.show(mainPanel, "create"));
 
@@ -468,9 +519,11 @@ public class Version {
                 //Aktuell nur Vanilla und Fabric
                 if (loader.equals("Vanilla")) {
                     downloadVanilla(version, profileDir);
+                    System.out.println("Downloading Vanilla");
                 }
                 else if (loader.equals("Fabric")) {
                     downloadFabric(version, profileDir);
+                    System.out.println("Downloading Fabric");
                 }
 
                 layout.show(mainPanel, "profiles");
@@ -497,15 +550,29 @@ public class Version {
                 .sslContext(SSLContext.getDefault())
                 .build();
 
+        String os = System.getProperty("os.name").toLowerCase();
+        String osKey;
+
+        if (os.contains("win")) {
+            osKey = "windows";
+        } else if (os.contains("mac")) {
+            osKey = "macos";
+        } else {
+            osKey = "linux";
+        }
+
         for (JsonElement libElement : libs) {
 
             JsonObject lib = libElement.getAsJsonObject();
 
-            if (!lib.has("downloads")) continue;
+            if (!lib.has("downloads"))
+                continue;
 
             JsonObject downloads = lib.getAsJsonObject("downloads");
 
-            // ===== NORMALER ARTIFACT =====
+            // =========================
+            // NORMALE LIBRARY
+            // =========================
             if (downloads.has("artifact")) {
 
                 JsonObject artifact = downloads.getAsJsonObject("artifact");
@@ -516,7 +583,10 @@ public class Version {
                 Path libPath = mcDir.resolve("libraries").resolve(path);
 
                 if (!Files.exists(libPath)) {
+
                     Files.createDirectories(libPath.getParent());
+
+                    System.out.println("Downloading library: " + path);
 
                     HttpRequest request = HttpRequest.newBuilder()
                             .uri(URI.create(url))
@@ -525,53 +595,58 @@ public class Version {
                     HttpResponse<InputStream> response =
                             client.send(request, HttpResponse.BodyHandlers.ofInputStream());
 
-                    Files.copy(response.body(), libPath, StandardCopyOption.REPLACE_EXISTING);
-
-                    System.out.println("Downloaded library: " + path);
+                    Files.copy(response.body(), libPath,
+                            StandardCopyOption.REPLACE_EXISTING);
                 }
             }
 
-            // ===== 🔥 NATIVES (DAS HAT GEFehlt) =====
-            if (lib.has("natives") && downloads.has("classifiers")) {
+            // =========================
+            // NATIVES (NUR RICHTIGES OS)
+            // =========================
+            if (downloads.has("classifiers")) {
 
-                String nativeKey = MinecraftLauncher.getNativeClassifierKey(lib);
+                JsonObject classifiers = downloads.getAsJsonObject("classifiers");
+
+                String nativeKey = null;
+
+                for (String key : classifiers.keySet()) {
+
+                    if (key.contains(osKey)) {
+                        nativeKey = key;
+                        break;
+                    }
+                }
 
                 if (nativeKey != null) {
-                    nativeKey = MinecraftLauncher.resolveClassifierKey(nativeKey);
 
-                    JsonObject classifiers = downloads.getAsJsonObject("classifiers");
+                    JsonObject nativeObj = classifiers.getAsJsonObject(nativeKey);
 
-                    if (classifiers.has(nativeKey)) {
+                    String url = nativeObj.get("url").getAsString();
+                    String path = nativeObj.get("path").getAsString();
 
-                        JsonObject classifier = classifiers.getAsJsonObject(nativeKey);
+                    Path libPath = mcDir.resolve("libraries").resolve(path);
 
-                        String url = classifier.get("url").getAsString();
-                        String path = classifier.get("path").getAsString();
+                    if (!Files.exists(libPath)) {
 
-                        Path libPath = mcDir.resolve("libraries").resolve(path);
+                        Files.createDirectories(libPath.getParent());
 
-                        if (!Files.exists(libPath)) {
-                            Files.createDirectories(libPath.getParent());
+                        System.out.println("Downloading native: " + path);
 
-                            HttpRequest request = HttpRequest.newBuilder()
-                                    .uri(URI.create(url))
-                                    .build();
+                        HttpRequest request = HttpRequest.newBuilder()
+                                .uri(URI.create(url))
+                                .build();
 
-                            HttpResponse<InputStream> response =
-                                    client.send(request, HttpResponse.BodyHandlers.ofInputStream());
+                        HttpResponse<InputStream> response =
+                                client.send(request, HttpResponse.BodyHandlers.ofInputStream());
 
-                            Files.copy(response.body(), libPath, StandardCopyOption.REPLACE_EXISTING);
-
-                            System.out.println("🔥 Downloaded native: " + path);
-                        }
-
-                    } else {
-                        System.out.println("Native classifier fehlt: " + nativeKey);
+                        Files.copy(response.body(), libPath,
+                                StandardCopyOption.REPLACE_EXISTING);
                     }
                 }
             }
         }
     }
+
     // ================================
     // DOWNLOAD VANILLA
     // ================================
@@ -584,6 +659,8 @@ public class Version {
         HttpRequest manifestRequest = HttpRequest.newBuilder()
                 .uri(URI.create("https://piston-meta.mojang.com/mc/game/version_manifest_v2.json"))
                 .build();
+
+        System.out.println("Downloading version metadata for " + version);
 
         HttpResponse<InputStream> manifestResponse =
                 client.send(manifestRequest, HttpResponse.BodyHandlers.ofInputStream());
@@ -642,12 +719,22 @@ public class Version {
         HttpResponse<InputStream> jarResponse =
                 client.send(jarRequest, HttpResponse.BodyHandlers.ofInputStream());
 
+        System.out.println("Downloading client.jar...");
+
         Files.copy(
                 jarResponse.body(),
                 profileDir.resolve("client.jar"),
                 StandardCopyOption.REPLACE_EXISTING
         );
         downloadLibraries(versionJson, profileDir);
+
+        getJavaRuntime(versionJson);
+
+        downloadAssets(versionJson, profileDir);
+        downloadLogging(versionJson, profileDir);
+
+        Path nativesDir = profileDir.resolve("natives");
+        extractAllNatives(profileDir.resolve("libraries"), nativesDir);
     }
 
     static void downloadFabric(String version, Path profileDir) throws Exception {
@@ -658,6 +745,8 @@ public class Version {
 
         // 2. Loader Version holen
         String loaderVersion = getLatestFabricLoader();
+
+        System.out.println("Downloading Fabric loader: " + loaderVersion);
 
         // 3. Fabric JSON laden
         String url = "https://meta.fabricmc.net/v2/versions/loader/"
@@ -720,4 +809,188 @@ public class Version {
         }
 
         return arr.get(0).getAsJsonObject().get("version").getAsString();
-    }}
+    }
+
+    private static void downloadAssets(JsonObject versionJson, Path profileDir) throws Exception {
+
+        JsonObject assetIndexObj = versionJson.getAsJsonObject("assetIndex");
+
+        String url = assetIndexObj.get("url").getAsString();
+        String id = assetIndexObj.get("id").getAsString();
+
+        Path assetsDir = profileDir.resolve("assets");
+        Path indexDir = assetsDir.resolve("indexes");
+        Path objectsDir = assetsDir.resolve("objects");
+
+        Files.createDirectories(indexDir);
+        Files.createDirectories(objectsDir);
+
+        Path indexFile = indexDir.resolve(id + ".json");
+
+        if (!Files.exists(indexFile)) {
+            try (InputStream in = new URL(url).openStream()) {
+                Files.copy(in, indexFile, StandardCopyOption.REPLACE_EXISTING);
+            }
+        }
+
+        JsonObject indexJson = JsonParser.parseReader(new FileReader(indexFile.toFile())).getAsJsonObject();
+        JsonObject objects = indexJson.getAsJsonObject("objects");
+
+        for (String name : objects.keySet()) {
+            JsonObject obj = objects.getAsJsonObject(name);
+
+            String hash = obj.get("hash").getAsString();
+            String sub = hash.substring(0, 2);
+
+            Path assetFile = objectsDir.resolve(sub).resolve(hash);
+
+            if (Files.exists(assetFile)) continue;
+
+            Files.createDirectories(assetFile.getParent());
+
+            String assetUrl = "https://resources.download.minecraft.net/" + sub + "/" + hash;
+
+            System.out.println("Downloading asset: " + name);
+
+            try (InputStream in = new URL(assetUrl).openStream()) {
+                Files.copy(in, assetFile, StandardCopyOption.REPLACE_EXISTING);
+            }
+        }
+    }
+
+    private static void downloadLogging(JsonObject versionJson, Path profileDir) throws Exception {
+
+        if (!versionJson.has("logging")) return;
+
+        JsonObject logging = versionJson.getAsJsonObject("logging");
+        if (!logging.has("client")) return;
+
+        JsonObject client = logging.getAsJsonObject("client");
+        JsonObject file = client.getAsJsonObject("file");
+
+        String url = file.get("url").getAsString();
+        String id = file.get("id").getAsString();
+
+        Path logFile = profileDir.resolve(id);
+
+        if (Files.exists(logFile)) return;
+
+        System.out.println("Downloading logging config: " + id);
+
+        try (InputStream in = new URL(url).openStream()) {
+            Files.copy(in, logFile, StandardCopyOption.REPLACE_EXISTING);
+        }
+    }
+
+    private static void unpackNatives(Path jarFile, Path nativesDir) throws IOException {
+        System.out.println("jarFile = " + jarFile);
+
+        if (!Files.exists(jarFile) || Files.size(jarFile) == 0) {
+            System.out.println("Native JAR fehlt oder ist leer: " + jarFile);
+            return;
+        }
+
+        Files.createDirectories(nativesDir);
+
+        boolean foundNative = false;
+
+        try (ZipInputStream zis = new ZipInputStream(Files.newInputStream(jarFile))) {
+            ZipEntry entry;
+
+            while ((entry = zis.getNextEntry()) != null) {
+                if (entry.isDirectory()) continue;
+                String name = entry.getName();
+
+                if (name.startsWith("META-INF/")) continue;
+                String lower = name.toLowerCase();
+
+                if (!(lower.endsWith(".dll") || lower.endsWith(".so") || lower.endsWith(".dylib"))) {
+                    continue;
+                }
+
+                foundNative = true;
+
+                Path outFile = nativesDir.resolve(Paths.get(name).getFileName().toString());
+                System.out.println("Extract native file: " + outFile.getFileName());
+                Files.copy(zis, outFile, StandardCopyOption.REPLACE_EXISTING);
+            }
+        }
+
+        if (!foundNative) {
+            System.out.println("Keine Natives gefunden in: " + jarFile.getFileName());
+        }
+    }
+
+    private static void extractAllNatives(Path librariesDir, Path nativesDir) throws IOException {
+        if (!Files.exists(librariesDir)) {
+            System.out.println("Libraries-Ordner fehlt: " + librariesDir);
+            return;
+        }
+
+        Files.createDirectories(nativesDir);
+
+        try (var paths = Files.walk(librariesDir)) {
+            paths.filter(Files::isRegularFile)
+                    .filter(path -> path.toString().endsWith(".jar"))
+                    .forEach(jar -> {
+                        try {
+                            System.out.println("Prüfe JAR auf Natives: " + jar);
+                            unpackNatives(jar, nativesDir);
+                        } catch (IOException e) {
+                            System.out.println("Fehler beim Entpacken von: " + jar);
+                            e.printStackTrace();
+                        }
+                    });
+        }
+    }
+
+    static Path getJavaRuntime(JsonObject versionJson) throws Exception {
+
+        int javaVersion = 8;
+
+        if (versionJson.has("javaVersion")) {
+            javaVersion = versionJson
+                    .getAsJsonObject("javaVersion")
+                    .get("majorVersion")
+                    .getAsInt();
+        }
+
+        Path runtimeDir = Paths.get(System.getenv("APPDATA"), ".cliont", "runtimes", "java" + javaVersion);
+        Path javaExe = runtimeDir.resolve("bin").resolve("java.exe");
+
+        if (Files.exists(javaExe)) return javaExe;
+
+        String url;
+
+        if (javaVersion == 8) {
+            url = "https://api.adoptium.net/v3/binary/latest/8/ga/windows/x64/jre/hotspot/normal/eclipse";
+        } else if (javaVersion == 17) {
+            url = "https://api.adoptium.net/v3/binary/latest/17/ga/windows/x64/jre/hotspot/normal/eclipse";
+        } else {
+            url = "https://api.adoptium.net/v3/binary/latest/21/ga/windows/x64/jre/hotspot/normal/eclipse";
+        }
+
+        Path zip = runtimeDir.resolve("java.zip");
+        Files.createDirectories(runtimeDir);
+
+        try (InputStream in = new URL(url).openStream()) {
+            Files.copy(in, zip, StandardCopyOption.REPLACE_EXISTING);
+        }
+
+        System.out.println("Downloading Java " + javaVersion + " runtime...");
+
+        MinecraftLauncher.unzip(zip, runtimeDir);
+        Files.delete(zip);
+
+        try (DirectoryStream<Path> dirs = Files.newDirectoryStream(runtimeDir)) {
+            for (Path dir : dirs) {
+                javaExe = dir.resolve("bin").resolve("java.exe");
+                if (Files.exists(javaExe)) {
+                    return javaExe;
+                }
+            }
+        }
+
+        throw new RuntimeException("Java runtime not found after extraction");
+    }
+}

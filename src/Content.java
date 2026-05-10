@@ -8,6 +8,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 
+
 // ... (Importe bleiben gleich)
 
 public class Content {
@@ -135,6 +136,7 @@ public class Content {
                 g2.dispose();
             }
         };
+
         startButton.setFont(mcFont.deriveFont(32f));
         startButton.setAlignmentX(Component.CENTER_ALIGNMENT);
         startButton.setContentAreaFilled(false);
@@ -144,6 +146,15 @@ public class Content {
         startButton.setMaximumSize(buttonSize);
         startButton.setPreferredSize(buttonSize); // Wichtig, damit Swing die Größe erzwingt
         startButton.setMinimumSize(buttonSize);
+
+        startButton.addActionListener(e -> {
+            try {
+                MinecraftLauncher.setVersion(versionBox.getSelectedItem().toString());
+                MinecraftLauncher.launch();
+            } catch (Exception ex) {
+                ex.printStackTrace();
+            }
+        });
 
         startPanel.add(startButton);
 

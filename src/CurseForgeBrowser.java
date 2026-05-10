@@ -1,12 +1,16 @@
 import com.google.gson.*;
+import org.w3c.dom.Text;
+
 import javax.imageio.ImageIO;
 import javax.swing.*;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
+import javax.swing.text.JTextComponent;
 import java.awt.*;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.io.FileReader;
+import java.io.IOException;
 import java.io.InputStream;
 import java.net.URI;
 import java.net.URLEncoder;
@@ -39,12 +43,13 @@ public class CurseForgeBrowser {
     private static final Color CARD = new Color(47, 49, 54);
     private static final Color HOVER = new Color(64, 68, 75);
 
-    public static JPanel create() {
+    public static JPanel create() throws IOException, FontFormatException {
 
         Color Cliont = new Color(188, 19, 254);
 
         JPanel mainPanel = new JPanel(new BorderLayout());
-        mainPanel.setBackground(Cliont);;
+        mainPanel.setBackground(new Color(43, 43, 43));
+        mainPanel.setBorder(null);
 
         // ---------- SEARCH BAR ----------
         JPanel topPanel = new JPanel(new BorderLayout());
@@ -91,13 +96,26 @@ public class CurseForgeBrowser {
         mainPanel.add(topPanel, BorderLayout.NORTH);
 
         // ---------- MOD LIST ----------
-        contentPanel = new JPanel();
-        contentPanel.setLayout(new BoxLayout(contentPanel, BoxLayout.Y_AXIS));
+        InputStream fontStream = Content.class.getResourceAsStream("/Minecraft.ttf");
+        Font mcFont = Font.createFont(Font.TRUETYPE_FONT, fontStream).deriveFont(18f);
+
+        JLabel offline = new JLabel("Ein Problem ist aufgetreten");
+        offline.setFont(mcFont);
+        offline.setForeground(Color.WHITE);
+
+        contentPanel = new JPanel(new GridBagLayout());
         contentPanel.setBackground(new Color(43, 43, 43));
+        contentPanel.setBorder(null);
+
+        contentPanel.add(offline);
+
 
         JScrollPane scrollPane = new JScrollPane(contentPanel);
+        scrollPane.setBorder(null);
+        scrollPane.getViewport().setBackground(new Color(43, 43, 43));
         scrollPane.getVerticalScrollBar().setUnitIncrement(16);
         mainPanel.add(scrollPane, BorderLayout.CENTER);
+
 
         // ---------- LOAD MORE ----------
         //JButton loadMore = new JButton("Load More");
@@ -106,8 +124,6 @@ public class CurseForgeBrowser {
         //    loadMods();
         //});
         //mainPanel.add(loadMore, BorderLayout.SOUTH);
-
-        // erste Mod-Ladung
         loadMods();
 
         return mainPanel;
