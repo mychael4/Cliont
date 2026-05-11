@@ -139,9 +139,11 @@ public class MinecraftLauncher {
         command.add("--userType");
         command.add("legacy");
 
-        new ProcessBuilder(command)
+        Process process = new ProcessBuilder(command)
                 .inheritIO()
                 .start();
+
+        return process;
     }
 
 

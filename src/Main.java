@@ -3,11 +3,10 @@ import java.awt.event.MouseAdapter;
 import java.awt.event.MouseMotionAdapter;
 import java.io.InputStream;
 import javax.swing.*;
-import java.awt.Font;
-import java.awt.FontFormatException;
-import java.io.IOException;
 
 public class Main {
+
+    private static JFrame mainFrame;
 
     public static void main(String[] args) throws Exception {
 
