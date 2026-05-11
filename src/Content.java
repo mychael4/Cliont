@@ -1,12 +1,11 @@
-import javax.swing.*;
 import java.awt.*;
-import java.awt.geom.RoundRectangle2D;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import javax.swing.*;
 
 
 // ... (Importe bleiben gleich)
@@ -149,9 +148,20 @@ public class Content {
 
         startButton.addActionListener(e -> {
             try {
+                Main.setAppBusy(true);
                 MinecraftLauncher.setVersion(versionBox.getSelectedItem().toString());
-                MinecraftLauncher.launch();
+                Process process = MinecraftLauncher.launch();
+
+                new Thread(() -> {
+                    try {
+                        process.waitFor();
+                    } catch (InterruptedException ignored) {
+                    } finally {
+                        Main.setAppBusy(false);
+                    }
+                }).start();
             } catch (Exception ex) {
+                Main.setAppBusy(false);
                 ex.printStackTrace();
             }
         });

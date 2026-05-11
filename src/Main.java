@@ -1,4 +1,6 @@
 import java.awt.*;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseMotionAdapter;
 import java.io.InputStream;
 import javax.swing.*;
 import java.awt.Font;
@@ -90,7 +92,39 @@ public class Main {
 
         frame.add(centerPanel);
 
+        initializeBusyGlassPane(frame);
         frame.setVisible(true);
+    }
+
+    private static void initializeBusyGlassPane(JFrame frame) {
+        mainFrame = frame;
+
+        JPanel glassPanel = new JPanel();
+        glassPanel.setOpaque(true);
+        glassPanel.setBackground(new Color(0, 0, 0, 120));
+        glassPanel.addMouseListener(new MouseAdapter() {
+        });
+        glassPanel.addMouseMotionListener(new MouseMotionAdapter() {
+        });
+        glassPanel.setVisible(false);
+
+        frame.setGlassPane(glassPanel);
+    }
+
+    public static void setAppBusy(boolean busy) {
+        if (mainFrame == null) return;
+        mainFrame.getGlassPane().setVisible(busy);
+        setComponentEnabled(mainFrame.getContentPane(), !busy);
+    }
+
+    private static void setComponentEnabled(Component component, boolean enabled) {
+        component.setEnabled(enabled);
+
+        if (component instanceof Container) {
+            for (Component child : ((Container) component).getComponents()) {
+                setComponentEnabled(child, enabled);
+            }
+        }
     }
 
     private static JButton createSidebarButton(

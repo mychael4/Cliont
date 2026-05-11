@@ -78,9 +78,20 @@ public class Version {
 
         start.addActionListener(e -> {
             try {
+                Main.setAppBusy(true);
                 MinecraftLauncher.setVersion(profilePath.getFileName().toString());
-                MinecraftLauncher.launch();
+                Process process = MinecraftLauncher.launch();
+
+                new Thread(() -> {
+                    try {
+                        process.waitFor();
+                    } catch (InterruptedException ignored) {
+                    } finally {
+                        Main.setAppBusy(false);
+                    }
+                }).start();
             } catch (Exception ex) {
+                Main.setAppBusy(false);
                 ex.printStackTrace();
             }
         });
@@ -348,9 +359,20 @@ public class Version {
 
         start.addActionListener(e -> {
             try {
+                Main.setAppBusy(true);
                 MinecraftLauncher.setVersion(profilePath.getFileName().toString());
-                MinecraftLauncher.launch();
+                Process process = MinecraftLauncher.launch();
+
+                new Thread(() -> {
+                    try {
+                        process.waitFor();
+                    } catch (InterruptedException ignored) {
+                    } finally {
+                        Main.setAppBusy(false);
+                    }
+                }).start();
             } catch (Exception ex) {
+                Main.setAppBusy(false);
                 ex.printStackTrace();
             }
         });
@@ -565,29 +587,63 @@ public class Version {
 
             JsonObject lib = libElement.getAsJsonObject();
 
-            if (!lib.has("downloads"))
-                continue;
+            String url = null;
+            String path = null;
 
-            JsonObject downloads = lib.getAsJsonObject("downloads");
+            // 1. Versuche artifact path (Standard)
+            if (lib.has("downloads")) {
+                JsonObject downloads = lib.getAsJsonObject("downloads");
+
+                if (downloads.has("artifact")) {
+                    JsonObject artifact = downloads.getAsJsonObject("artifact");
+                    url = artifact.get("url").getAsString();
+                    path = artifact.get("path").getAsString();
+                }
+            }
+
+            // 2. Fallback: Maven path (für Loader wie Fabric, Forge, etc.)
+            if (path == null && lib.has("name")) {
+                String maven = lib.get("name").getAsString();
+                String[] parts = maven.split(":");
+
+                if (parts.length >= 3) {
+                    String group = parts[0].replace('.', '/');
+                    String artifact = parts[1];
+                    String version = parts[2];
+                    path = group + "/" + artifact + "/" + version + "/" + artifact + "-" + version + ".jar";
+                    
+                    // Repository basierend auf group:artifact auswählen
+                    if (maven.contains("net.fabricmc")) {
+                        url = "https://maven.fabricmc.net/" + path;
+                    } else if (maven.contains("org.ow2.asm") || maven.contains("org.spongepowered")) {
+                        // ASM und Sponge/Mixin aus Maven Central
+                        url = "https://repo1.maven.org/maven2/" + path;
+                    } else {
+                        url = "https://libraries.minecraft.net/" + path;
+                    }
+                    System.out.println("[FALLBACK] Downloading: " + maven + " from " + url);
+                }
+            }
+
+            if (path == null || url == null) {
+                if (lib.has("name")) {
+                    System.out.println("[SKIP] Could not resolve: " + lib.get("name").getAsString());
+                }
+                continue;
+            }
 
             // =========================
             // NORMALE LIBRARY
             // =========================
-            if (downloads.has("artifact")) {
+            Path libPath = mcDir.resolve("libraries").resolve(path);
 
-                JsonObject artifact = downloads.getAsJsonObject("artifact");
+            if (!Files.exists(libPath)) {
 
-                String url = artifact.get("url").getAsString();
-                String path = artifact.get("path").getAsString();
+                Files.createDirectories(libPath.getParent());
 
-                Path libPath = mcDir.resolve("libraries").resolve(path);
+                System.out.println("Downloading library: " + path);
 
-                if (!Files.exists(libPath)) {
-
-                    Files.createDirectories(libPath.getParent());
-
-                    System.out.println("Downloading library: " + path);
-
+                try {
                     HttpRequest request = HttpRequest.newBuilder()
                             .uri(URI.create(url))
                             .build();
@@ -597,50 +653,59 @@ public class Version {
 
                     Files.copy(response.body(), libPath,
                             StandardCopyOption.REPLACE_EXISTING);
+                    System.out.println("[SUCCESS] Downloaded: " + path);
+                } catch (Exception e) {
+                    System.out.println("Failed to download: " + url);
+                    e.printStackTrace();
                 }
             }
 
             // =========================
             // NATIVES (NUR RICHTIGES OS)
             // =========================
-            if (downloads.has("classifiers")) {
+            if (lib.has("downloads")) {
+                JsonObject downloads = lib.getAsJsonObject("downloads");
+                
+                if (downloads.has("classifiers")) {
+                    JsonObject classifiers = downloads.getAsJsonObject("classifiers");
 
-                JsonObject classifiers = downloads.getAsJsonObject("classifiers");
+                    String nativeKey = null;
 
-                String nativeKey = null;
-
-                for (String key : classifiers.keySet()) {
-
-                    if (key.contains(osKey)) {
-                        nativeKey = key;
-                        break;
+                    for (String key : classifiers.keySet()) {
+                        if (key.contains(osKey)) {
+                            nativeKey = key;
+                            break;
+                        }
                     }
-                }
 
-                if (nativeKey != null) {
+                    if (nativeKey != null) {
+                        JsonObject nativeObj = classifiers.getAsJsonObject(nativeKey);
 
-                    JsonObject nativeObj = classifiers.getAsJsonObject(nativeKey);
+                        String nativeUrl = nativeObj.get("url").getAsString();
+                        String nativePath = nativeObj.get("path").getAsString();
 
-                    String url = nativeObj.get("url").getAsString();
-                    String path = nativeObj.get("path").getAsString();
+                        Path nativeLibPath = mcDir.resolve("libraries").resolve(nativePath);
 
-                    Path libPath = mcDir.resolve("libraries").resolve(path);
+                        if (!Files.exists(nativeLibPath)) {
+                            Files.createDirectories(nativeLibPath.getParent());
 
-                    if (!Files.exists(libPath)) {
+                            System.out.println("Downloading native: " + nativePath);
 
-                        Files.createDirectories(libPath.getParent());
+                            try {
+                                HttpRequest nativeRequest = HttpRequest.newBuilder()
+                                        .uri(URI.create(nativeUrl))
+                                        .build();
 
-                        System.out.println("Downloading native: " + path);
+                                HttpResponse<InputStream> nativeResponse =
+                                        client.send(nativeRequest, HttpResponse.BodyHandlers.ofInputStream());
 
-                        HttpRequest request = HttpRequest.newBuilder()
-                                .uri(URI.create(url))
-                                .build();
-
-                        HttpResponse<InputStream> response =
-                                client.send(request, HttpResponse.BodyHandlers.ofInputStream());
-
-                        Files.copy(response.body(), libPath,
-                                StandardCopyOption.REPLACE_EXISTING);
+                                Files.copy(nativeResponse.body(), nativeLibPath,
+                                        StandardCopyOption.REPLACE_EXISTING);
+                            } catch (Exception e) {
+                                System.out.println("Failed to download native: " + nativeUrl);
+                                e.printStackTrace();
+                            }
+                        }
                     }
                 }
             }

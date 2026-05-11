@@ -16,7 +16,7 @@ public class MinecraftLauncher {
         version = v;
     }
 
-    public static void launch() throws Exception {
+    public static Process launch() throws Exception {
 
         if (version == null || version.isEmpty()) {
             throw new IllegalStateException("Version wurde nicht gesetzt. Nutze setVersion(v).");
@@ -228,28 +228,71 @@ public class MinecraftLauncher {
     private static JsonArray mergeLibraries(JsonObject vanillaJson, JsonObject launchJson) {
 
         JsonArray merged = new JsonArray();
-        Set<String> addedNames = new HashSet<>();
+        Map<String, JsonObject> latestLibs = new HashMap<>();
 
+        // Hilfsfunktion zum Extrahieren von group:artifact
+        java.util.function.Function<String, String> getGroupArtifact = (name) -> {
+            String[] parts = name.split(":");
+            return parts.length >= 2 ? parts[0] + ":" + parts[1] : name;
+        };
+
+        // Hilfsfunktion zum Vergleichen von Versionen (einfach string-basiert)
+        java.util.function.BiFunction<String, String, String> getLatestVersion = (v1, v2) -> {
+            return v1.compareTo(v2) > 0 ? v1 : v2;
+        };
+
+        // Verarbeite Vanilla Libraries
         if (vanillaJson.has("libraries")) {
             for (JsonElement el : vanillaJson.getAsJsonArray("libraries")) {
                 JsonObject lib = el.getAsJsonObject();
-                String key = lib.has("name") ? lib.get("name").getAsString() : lib.toString();
+                if (lib.has("name")) {
+                    String fullName = lib.get("name").getAsString();
+                    String groupArtifact = getGroupArtifact.apply(fullName);
+                    String[] parts = fullName.split(":");
+                    String version = parts.length >= 3 ? parts[2] : "";
 
-                if (addedNames.add(key)) {
-                    merged.add(lib);
+                    JsonObject existing = latestLibs.get(groupArtifact);
+                    if (existing == null || getLatestVersion.apply(version, existing.get("name").getAsString().split(":")[2]).equals(version)) {
+                        latestLibs.put(groupArtifact, lib);
+                    }
                 }
             }
         }
 
-        if (launchJson.has("libraries")) {
+        // Verarbeite Launch Libraries (z.B. Fabric)
+        if (launchJson != null && launchJson.has("libraries")) {
             for (JsonElement el : launchJson.getAsJsonArray("libraries")) {
                 JsonObject lib = el.getAsJsonObject();
-                String key = lib.has("name") ? lib.get("name").getAsString() : lib.toString();
+                if (lib.has("name")) {
+                    String fullName = lib.get("name").getAsString();
+                    String groupArtifact = getGroupArtifact.apply(fullName);
+                    String[] parts = fullName.split(":");
+                    String version = parts.length >= 3 ? parts[2] : "";
 
-                if (addedNames.add(key)) {
-                    merged.add(lib);
+                    JsonObject existing = latestLibs.get(groupArtifact);
+                    if (existing == null || getLatestVersion.apply(version, existing.get("name").getAsString().split(":")[2]).equals(version)) {
+                        latestLibs.put(groupArtifact, lib);
+                    }
                 }
             }
+        }
+
+        // Sortiere Libraries: Dependencies zuerst (ASM, Mixin, etc. vor Loaders)
+        List<String> keys = new ArrayList<>(latestLibs.keySet());
+        keys.sort((k1, k2) -> {
+            // Loader und spezifische Abhängigkeiten ans Ende
+            boolean k1IsLoader = k1.contains("fabric-loader") || k1.contains("neoforge") || k1.contains("forge");
+            boolean k2IsLoader = k2.contains("fabric-loader") || k2.contains("neoforge") || k2.contains("forge");
+            
+            if (k1IsLoader && !k2IsLoader) return 1;
+            if (!k1IsLoader && k2IsLoader) return -1;
+            
+            return k1.compareTo(k2);
+        });
+
+        // In Array umwandeln in sortierter Reihenfolge
+        for (String key : keys) {
+            merged.add(latestLibs.get(key));
         }
 
         return merged;
