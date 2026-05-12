@@ -594,7 +594,7 @@ public class Version {
         if (os.contains("win")) {
             osKey = "windows";
         } else if (os.contains("mac")) {
-            osKey = "macos";
+            osKey = "osx";
         } else {
             osKey = "linux";
         }
@@ -602,6 +602,13 @@ public class Version {
         for (JsonElement libElement : libs) {
 
             JsonObject lib = libElement.getAsJsonObject();
+
+            if (!MinecraftLauncher.isLibraryAllowed(lib)) {
+                if (lib.has("name")) {
+                    System.out.println("Skipping disallowed library: " + lib.get("name").getAsString());
+                }
+                continue;
+            }
 
             String url = null;
             String path = null;

@@ -173,7 +173,7 @@ public class MinecraftLauncher {
         }
     }
 
-    private static boolean isLibraryAllowed(JsonObject lib) {
+    static boolean isLibraryAllowed(JsonObject lib) {
 
         if (!lib.has("rules")) return true;
 
@@ -243,19 +243,36 @@ public class MinecraftLauncher {
             return v1.compareTo(v2) > 0 ? v1 : v2;
         };
 
+        java.util.function.Function<JsonObject, String> getLibraryKey = (lib) -> {
+            String key = lib.has("name") ? lib.get("name").getAsString() : "";
+            if (lib.has("downloads")) {
+                JsonObject downloads = lib.getAsJsonObject("downloads");
+                if (downloads.has("artifact")) {
+                    key += "|artifact:" + downloads.getAsJsonObject("artifact").get("path").getAsString();
+                } else if (downloads.has("classifiers")) {
+                    key += "|classifiers";
+                }
+            }
+            if (lib.has("natives")) {
+                key += "|natives";
+            }
+            return key;
+        };
+
         // Verarbeite Vanilla Libraries
         if (vanillaJson.has("libraries")) {
             for (JsonElement el : vanillaJson.getAsJsonArray("libraries")) {
                 JsonObject lib = el.getAsJsonObject();
-                if (lib.has("name")) {
-                    String fullName = lib.get("name").getAsString();
-                    String groupArtifact = getGroupArtifact.apply(fullName);
-                    String[] parts = fullName.split(":");
-                    String version = parts.length >= 3 ? parts[2] : "";
-
-                    JsonObject existing = latestLibs.get(groupArtifact);
-                    if (existing == null || getLatestVersion.apply(version, existing.get("name").getAsString().split(":")[2]).equals(version)) {
-                        latestLibs.put(groupArtifact, lib);
+                if (!isLibraryAllowed(lib)) continue;
+                String key = getLibraryKey.apply(lib);
+                JsonObject existing = latestLibs.get(key);
+                if (existing == null) {
+                    latestLibs.put(key, lib);
+                } else {
+                    String version = lib.has("name") ? lib.get("name").getAsString().split(":")[2] : "";
+                    String existingVersion = existing.has("name") ? existing.get("name").getAsString().split(":")[2] : "";
+                    if (getLatestVersion.apply(version, existingVersion).equals(version)) {
+                        latestLibs.put(key, lib);
                     }
                 }
             }
@@ -265,15 +282,16 @@ public class MinecraftLauncher {
         if (launchJson != null && launchJson.has("libraries")) {
             for (JsonElement el : launchJson.getAsJsonArray("libraries")) {
                 JsonObject lib = el.getAsJsonObject();
-                if (lib.has("name")) {
-                    String fullName = lib.get("name").getAsString();
-                    String groupArtifact = getGroupArtifact.apply(fullName);
-                    String[] parts = fullName.split(":");
-                    String version = parts.length >= 3 ? parts[2] : "";
-
-                    JsonObject existing = latestLibs.get(groupArtifact);
-                    if (existing == null || getLatestVersion.apply(version, existing.get("name").getAsString().split(":")[2]).equals(version)) {
-                        latestLibs.put(groupArtifact, lib);
+                if (!isLibraryAllowed(lib)) continue;
+                String key = getLibraryKey.apply(lib);
+                JsonObject existing = latestLibs.get(key);
+                if (existing == null) {
+                    latestLibs.put(key, lib);
+                } else {
+                    String version = lib.has("name") ? lib.get("name").getAsString().split(":")[2] : "";
+                    String existingVersion = existing.has("name") ? existing.get("name").getAsString().split(":")[2] : "";
+                    if (getLatestVersion.apply(version, existingVersion).equals(version)) {
+                        latestLibs.put(key, lib);
                     }
                 }
             }
