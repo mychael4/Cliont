@@ -22,6 +22,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.nio.file.StandardOpenOption;
 import java.text.NumberFormat;
 import java.util.List;
 
@@ -451,50 +452,56 @@ public class CurseForgeBrowser {
     static JPanel createInstallCard(ProfileInfo profile, java.util.List<FileInfo> files) {
 
         JPanel card = new JPanel(new BorderLayout());
-        card.setMaximumSize(new Dimension(Integer.MAX_VALUE, 60));
+        card.setMaximumSize(new Dimension(Integer.MAX_VALUE, 80));
         card.setBackground(CARD);
+        card.setBorder(BorderFactory.createEmptyBorder(5, 10, 5, 10));
 
-        JLabel name = new JLabel(profile.name + " (" + profile.version + ")");
+        // 🔥 LEFT: Profil-Infos
+        JPanel leftPanel = new JPanel();
+        leftPanel.setLayout(new BoxLayout(leftPanel, BoxLayout.Y_AXIS));
+        leftPanel.setBackground(CARD);
+
+        JLabel name = new JLabel(profile.name);
         name.setForeground(Color.WHITE);
+        name.setFont(new Font("Arial", Font.BOLD, 14));
 
-        card.add(name, BorderLayout.WEST);
+        JLabel info = new JLabel(profile.version + " • " + profile.loader);
+        info.setForeground(Color.LIGHT_GRAY);
+        info.setFont(new Font("Arial", Font.PLAIN, 12));
+
+        leftPanel.add(name);
+        leftPanel.add(info);
+
+        card.add(leftPanel, BorderLayout.WEST);
 
         // 🔥 prüfen ob kompatible Datei existiert
         boolean hasCompatibleVersion = false;
+        FileInfo bestMatch = null;
 
         for (FileInfo f : files) {
             if (isCompatible(profile, f)) {
                 hasCompatibleVersion = true;
+                bestMatch = f;
                 break;
             }
         }
 
         if (hasCompatibleVersion) {
+            // ✅ Kompatibel
+            JLabel compatible = new JLabel("✓ Compatible");
+            compatible.setForeground(new Color(100, 255, 100));
+            compatible.setFont(new Font("Arial", Font.BOLD, 12));
 
             JButton install = new JButton("Install");
+            install.setBackground(new Color(188, 19, 254));
+            install.setForeground(Color.WHITE);
+            
+            FileInfo finalBestMatch = bestMatch;
 
             install.addActionListener(e -> {
-
                 System.out.println("Start install for profile: " + profile.name);
-
-                FileInfo bestMatch = null;
-
-                for (FileInfo f : files) {
-
-                    if (isCompatible(profile, f)) {
-                        System.out.println("Compatible found: " + f.fileName);
-
-                        // Erste passende Datei nehmen (oder später verbessern)
-                        bestMatch = f;
-
-                        // Optional: bessere Auswahllogik hier rein
-                        break;
-                    }
-                }
-
-                if (bestMatch != null) {
+                if (finalBestMatch != null) {
                     // 🔥 Installation im Background-Thread!
-                    FileInfo finalBestMatch = bestMatch;
                     new Thread(() -> {
                         installToProfile(profile, finalBestMatch);
                     }).start();
@@ -503,8 +510,20 @@ public class CurseForgeBrowser {
                 }
             });
 
-            card.add(install, BorderLayout.EAST);
+            JPanel rightPanel = new JPanel(new BorderLayout(10, 0));
+            rightPanel.setBackground(CARD);
+            rightPanel.add(compatible, BorderLayout.WEST);
+            rightPanel.add(install, BorderLayout.EAST);
+
+            card.add(rightPanel, BorderLayout.EAST);
+        } else {
+            // ❌ Nicht kompatibel
+            JLabel notCompatible = new JLabel("✗ Not compatible");
+            notCompatible.setForeground(new Color(255, 100, 100));
+            notCompatible.setFont(new Font("Arial", Font.BOLD, 12));
+            card.add(notCompatible, BorderLayout.EAST);
         }
+        
         return card;
     }
 
@@ -520,17 +539,21 @@ public class CurseForgeBrowser {
                     .uri(URI.create(file.downloadUrl))
                     .build();
 
-            HttpResponse<InputStream> response =
-                    client.send(request, HttpResponse.BodyHandlers.ofInputStream());
+            // 🔥 WICHTIG: ofByteArray() statt ofInputStream()!
+            HttpResponse<byte[]> response =
+                    client.send(request, HttpResponse.BodyHandlers.ofByteArray());
 
             Path target = modsDir.resolve(file.fileName);
 
-            Files.copy(response.body(), target, StandardCopyOption.REPLACE_EXISTING);
+            // 🔥 Byte-Array direkt schreiben - zuverlässiger
+            Files.write(target, response.body(), StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+
+            System.out.println("✓ Installed: " + file.fileName + " (" + response.body().length + " bytes)");
 
             // 🔥 UI-Update auf dem EDT!
             SwingUtilities.invokeLater(() -> {
                 JOptionPane.showMessageDialog(null,
-                        "Installed in " + profile.name);
+                        "Installed in " + profile.name + "\n(" + (response.body().length / 1024 / 1024) + " MB)");
             });
 
         } catch (Exception e) {

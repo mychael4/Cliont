@@ -522,38 +522,54 @@ public class Version {
 
             if (name.isEmpty()) return;
 
-            try {
+            // 🔥 Lange Operation in Background-Thread!
+            new Thread(() -> {
+                try {
 
-                Path profileDir = Paths.get(System.getenv("APPDATA"),
-                        ".cliont", "profiles", name);
+                    Path profileDir = Paths.get(System.getenv("APPDATA"),
+                            ".cliont", "profiles", name);
 
-                Files.createDirectories(profileDir);
+                    Files.createDirectories(profileDir);
 
-                JsonObject profileJson = new JsonObject();
-                profileJson.addProperty("name", name);
-                profileJson.addProperty("version", version);
-                profileJson.addProperty("loader", loader);
+                    JsonObject profileJson = new JsonObject();
+                    profileJson.addProperty("name", name);
+                    profileJson.addProperty("version", version);
+                    profileJson.addProperty("loader", loader);
 
-                try (FileWriter writer = new FileWriter(profileDir.resolve("profile.json").toFile())) {
-                    new GsonBuilder().setPrettyPrinting().create().toJson(profileJson, writer);
+                    try (FileWriter writer = new FileWriter(profileDir.resolve("profile.json").toFile())) {
+                        new GsonBuilder().setPrettyPrinting().create().toJson(profileJson, writer);
+                    }
+
+                    //Aktuell nur Vanilla und Fabric
+                    if (loader.equals("Vanilla")) {
+                        downloadVanilla(version, profileDir);
+                        System.out.println("Downloading Vanilla");
+                    }
+                    else if (loader.equals("Fabric")) {
+                        downloadFabric(version, profileDir);
+                        System.out.println("Downloading Fabric");
+                    }
+
+                    // 🔥 UI Update auf EDT!
+                    SwingUtilities.invokeLater(() -> {
+                        layout.show(mainPanel, "profiles");
+                        loadProfiles();
+                        JOptionPane.showMessageDialog(null,
+                                "Profile '" + name + "' created successfully!",
+                                "Success",
+                                JOptionPane.INFORMATION_MESSAGE);
+                    });
+
+                } catch (Exception ex) {
+                    ex.printStackTrace();
+                    SwingUtilities.invokeLater(() -> {
+                        JOptionPane.showMessageDialog(null,
+                                "Error creating profile: " + ex.getMessage(),
+                                "Error",
+                                JOptionPane.ERROR_MESSAGE);
+                    });
                 }
-
-                //Aktuell nur Vanilla und Fabric
-                if (loader.equals("Vanilla")) {
-                    downloadVanilla(version, profileDir);
-                    System.out.println("Downloading Vanilla");
-                }
-                else if (loader.equals("Fabric")) {
-                    downloadFabric(version, profileDir);
-                    System.out.println("Downloading Fabric");
-                }
-
-                layout.show(mainPanel, "profiles");
-                loadProfiles();
-
-            } catch (Exception ex) {
-                ex.printStackTrace();
-            }
+            }).start();
 
         });
 
