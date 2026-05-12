@@ -32,6 +32,7 @@ public class CurseForgeBrowser {
     private static final int GAME_ID = 432;
 
     private static JPanel contentPanel;
+    private static JLabel statusLabel;
     private static JTextField searchField;
 
     private static int currentIndex = 0;
@@ -100,15 +101,15 @@ public class CurseForgeBrowser {
         InputStream fontStream = Content.class.getResourceAsStream("/Minecraft.ttf");
         Font mcFont = Font.createFont(Font.TRUETYPE_FONT, fontStream).deriveFont(18f);
 
-        JLabel offline = new JLabel("Ein Problem ist aufgetreten");
-        offline.setFont(mcFont);
-        offline.setForeground(Color.WHITE);
+        statusLabel = new JLabel("Lade Mods...");
+        statusLabel.setFont(mcFont);
+        statusLabel.setForeground(Color.WHITE);
 
         contentPanel = new JPanel(new GridBagLayout());
         contentPanel.setBackground(new Color(43, 43, 43));
         contentPanel.setBorder(null);
 
-        contentPanel.add(offline);
+        contentPanel.add(statusLabel);
 
 
         JScrollPane scrollPane = new JScrollPane(contentPanel);
@@ -241,6 +242,13 @@ public class CurseForgeBrowser {
                 info.gameVersions = new java.util.ArrayList<>();
                 info.modLoader = -1;
 
+                // Fallback: offizielles modLoader Feld nutzen
+                if (f.has("modLoader")
+                        && !f.get("modLoader").isJsonNull()) {
+
+                    info.modLoader = f.get("modLoader").getAsInt();
+                }
+
                 // 🔥 gameVersions sauber auslesen
                 if (f.has("gameVersions") && f.get("gameVersions").isJsonArray()) {
 
@@ -250,24 +258,18 @@ public class CurseForgeBrowser {
                         String v = versionElement.getAsString();
                         info.gameVersions.add(v.toLowerCase());
 
-                        // Loader erkennen
+                        // Loader erkennen als Fallback
                         String lower = v.toLowerCase();
-                        if (lower.contains("fabric")) {
-                            info.modLoader = 4;
-                        } else if (lower.contains("neoforge")) {
-                            info.modLoader = 6;
-                        } else if (lower.contains("forge")) {
-                            info.modLoader = 1;
+                        if (info.modLoader == -1) {
+                            if (lower.contains("fabric")) {
+                                info.modLoader = 4;
+                            } else if (lower.contains("neoforge")) {
+                                info.modLoader = 6;
+                            } else if (lower.contains("forge")) {
+                                info.modLoader = 1;
+                            }
                         }
                     }
-                }
-
-                // Fallback: offizielles modLoader Feld nutzen
-                if (f.has("modLoader")
-                        && !f.get("modLoader").isJsonNull()
-                        && info.modLoader == -1) {
-
-                    info.modLoader = f.get("modLoader").getAsInt();
                 }
 
                 list.add(info);
@@ -298,6 +300,14 @@ public class CurseForgeBrowser {
                     url += "&searchFilter="
                             + URLEncoder.encode(currentSearch, StandardCharsets.UTF_8);
                 }
+
+                SwingUtilities.invokeLater(() -> {
+                    contentPanel.removeAll();
+                    statusLabel.setText("Lade Mods...");
+                    contentPanel.add(statusLabel);
+                    contentPanel.revalidate();
+                    contentPanel.repaint();
+                });
 
                 HttpClient client = HttpClient.newHttpClient();
 
@@ -363,12 +373,32 @@ public class CurseForgeBrowser {
             @Override
             protected void process(List<JPanel> cards) {
 
+                if (statusLabel.getParent() == contentPanel) {
+                    contentPanel.removeAll();
+                }
+
                 for (JPanel card : cards) {
                     contentPanel.add(card);
                 }
 
                 contentPanel.revalidate();
                 contentPanel.repaint();
+            }
+
+            @Override
+            protected void done() {
+                try {
+                    get();
+                } catch (Exception e) {
+                    e.printStackTrace();
+                    SwingUtilities.invokeLater(() -> {
+                        contentPanel.removeAll();
+                        statusLabel.setText("Ein Problem ist aufgetreten");
+                        contentPanel.add(statusLabel);
+                        contentPanel.revalidate();
+                        contentPanel.repaint();
+                    });
+                }
             }
 
         }.execute();
@@ -378,27 +408,29 @@ public class CurseForgeBrowser {
 
         String profileVersion = p.version.toLowerCase();
 
-        boolean versionMatch = f.gameVersions.stream().anyMatch(gv ->
+        boolean versionMatch = !f.gameVersions.isEmpty() && f.gameVersions.stream().anyMatch(gv ->
                 gv.equals(profileVersion)
                         || gv.contains(profileVersion)
                         || profileVersion.contains(gv)
         );
 
-        boolean loaderMatch = false;
+        boolean loaderMatch = f.modLoader == -1;
 
-        switch (p.loader.toLowerCase()) {
-            case "fabric":
-                loaderMatch = (f.modLoader == 4);
-                break;
-            case "forge":
-                loaderMatch = (f.modLoader == 1);
-                break;
-            case "neoforge":
-                loaderMatch = (f.modLoader == 6);
-                break;
-            case "vanilla":
-                loaderMatch = (f.modLoader == -1);
-                break;
+        if (!loaderMatch) {
+            switch (p.loader.toLowerCase()) {
+                case "fabric":
+                    loaderMatch = (f.modLoader == 4);
+                    break;
+                case "forge":
+                    loaderMatch = (f.modLoader == 1);
+                    break;
+                case "neoforge":
+                    loaderMatch = (f.modLoader == 6);
+                    break;
+                case "vanilla":
+                    loaderMatch = (f.modLoader == -1);
+                    break;
+            }
         }
 
         return versionMatch && loaderMatch;
