@@ -22,6 +22,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.nio.file.StandardOpenOption;
 import java.text.NumberFormat;
 import java.util.List;
 
@@ -31,11 +32,14 @@ public class CurseForgeBrowser {
     private static final int GAME_ID = 432;
 
     private static JPanel contentPanel;
+    private static JLabel statusLabel;
     private static JTextField searchField;
 
     private static int currentIndex = 0;
     private static final int pageSize = 20;
     private static String currentSearch = "";
+    private static String currentVersionFilter = "All Versions";
+    private static String currentLoaderFilter = "All";
 
     private static Timer searchTimer;
 
@@ -92,22 +96,64 @@ public class CurseForgeBrowser {
             public void changedUpdate(DocumentEvent e) { restartTimer(); }
         });
 
+        JPanel filterPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 10, 5));
+        filterPanel.setOpaque(false);
+
+        JComboBox<String> loaderFilter = new JComboBox<>(new String[]{
+                "All", "Vanilla", "Fabric", "Forge", "NeoForge"
+        });
+        loaderFilter.setPreferredSize(new Dimension(120, 28));
+        loaderFilter.setBackground(new Color(70, 70, 70));
+        loaderFilter.setForeground(Color.WHITE);
+
+        JComboBox<String> versionFilter = new JComboBox<>();
+        versionFilter.setPreferredSize(new Dimension(140, 28));
+        versionFilter.setBackground(new Color(70, 70, 70));
+        versionFilter.setForeground(Color.WHITE);
+        versionFilter.addItem("All Versions");
+
+        java.util.Set<String> versions = new java.util.TreeSet<>();
+        for (ProfileInfo profile : getProfiles()) {
+            versions.add(profile.version);
+        }
+        for (String version : versions) {
+            versionFilter.addItem(version);
+        }
+
+        loaderFilter.addActionListener(e -> {
+            currentLoaderFilter = (String) loaderFilter.getSelectedItem();
+            doSearch();
+        });
+
+        versionFilter.addActionListener(e -> {
+            currentVersionFilter = (String) versionFilter.getSelectedItem();
+            doSearch();
+        });
+
+        filterPanel.add(new JLabel("Version:"));
+        filterPanel.add(versionFilter);
+        filterPanel.add(new JLabel("Loader:"));
+        filterPanel.add(loaderFilter);
+
         topPanel.add(searchField, BorderLayout.CENTER);
+        topPanel.add(filterPanel, BorderLayout.SOUTH);
         mainPanel.add(topPanel, BorderLayout.NORTH);
 
         // ---------- MOD LIST ----------
         InputStream fontStream = Content.class.getResourceAsStream("/Minecraft.ttf");
         Font mcFont = Font.createFont(Font.TRUETYPE_FONT, fontStream).deriveFont(18f);
 
-        JLabel offline = new JLabel("Ein Problem ist aufgetreten");
-        offline.setFont(mcFont);
-        offline.setForeground(Color.WHITE);
+        statusLabel = new JLabel("Lade Mods...");
+        statusLabel.setFont(mcFont);
+        statusLabel.setForeground(Color.WHITE);
 
-        contentPanel = new JPanel(new GridBagLayout());
+        contentPanel = new JPanel();
+        contentPanel.setLayout(new BoxLayout(contentPanel, BoxLayout.Y_AXIS));
         contentPanel.setBackground(new Color(43, 43, 43));
         contentPanel.setBorder(null);
 
-        contentPanel.add(offline);
+        statusLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
+        contentPanel.add(statusLabel);
 
 
         JScrollPane scrollPane = new JScrollPane(contentPanel);
@@ -137,9 +183,10 @@ public class CurseForgeBrowser {
     }
 
     static class FileInfo {
+        long fileId;
         String downloadUrl;
         String fileName;
-        String gameVersion;
+        java.util.List<String> gameVersions;
         int modLoader; // 4 = Fabric
     }
 
@@ -224,6 +271,11 @@ public class CurseForgeBrowser {
 
                 FileInfo info = new FileInfo();
 
+                // File-ID für die Auswahl der neuesten kompatiblen Version
+                if (f.has("id") && !f.get("id").isJsonNull()) {
+                    info.fileId = f.get("id").getAsLong();
+                }
+
                 // Download URL
                 if (f.has("downloadUrl") && !f.get("downloadUrl").isJsonNull()) {
                     info.downloadUrl = f.get("downloadUrl").getAsString();
@@ -237,8 +289,13 @@ public class CurseForgeBrowser {
                 }
 
                 // Standardwerte
-                info.gameVersion = null;
+                info.gameVersions = new java.util.ArrayList<>();
                 info.modLoader = -1;
+
+                // Fallback: offizielles modLoader Feld nutzen
+                if (f.has("modLoader") && !f.get("modLoader").isJsonNull()) {
+                    info.modLoader = f.get("modLoader").getAsInt();
+                }
 
                 // 🔥 gameVersions sauber auslesen
                 if (f.has("gameVersions") && f.get("gameVersions").isJsonArray()) {
@@ -246,33 +303,21 @@ public class CurseForgeBrowser {
                     JsonArray gv = f.getAsJsonArray("gameVersions");
 
                     for (JsonElement versionElement : gv) {
-
-                        String v = versionElement.getAsString().toLowerCase();
-
-                        // Minecraft-Version erkennen
-                        if (v.matches("\\d+\\.\\d+(\\.\\d+)?")) {
-                            info.gameVersion = v;
-                        }
-
-                        // Loader erkennen
-                        if (v.contains("fabric")) {
-                            info.modLoader = 4;
-                        }
-                        else if (v.contains("neoforge")) {
-                            info.modLoader = 6;
-                        }
-                        else if (v.contains("forge")) {
-                            info.modLoader = 1;
-                        }
+                        String v = versionElement.getAsString();
+                        info.gameVersions.add(v.toLowerCase());
                     }
                 }
 
-                // Fallback: offizielles modLoader Feld nutzen
-                if (f.has("modLoader")
-                        && !f.get("modLoader").isJsonNull()
-                        && info.modLoader == -1) {
-
-                    info.modLoader = f.get("modLoader").getAsInt();
+                // Fallback: Loader aus Dateiname erkennen
+                if (info.modLoader == -1 && info.fileName != null) {
+                    String lower = info.fileName.toLowerCase();
+                    if (lower.contains("fabricapi") || lower.contains("fabric")) {
+                        info.modLoader = 4;
+                    } else if (lower.contains("neoforge")) {
+                        info.modLoader = 6;
+                    } else if (lower.contains("forge")) {
+                        info.modLoader = 1;
+                    }
                 }
 
                 list.add(info);
@@ -306,6 +351,15 @@ public class CurseForgeBrowser {
 
                 HttpClient client = HttpClient.newHttpClient();
 
+                SwingUtilities.invokeLater(() -> {
+                    contentPanel.removeAll();
+                    statusLabel.setText("Lade Mods...");
+                    statusLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
+                    contentPanel.add(statusLabel);
+                    contentPanel.revalidate();
+                    contentPanel.repaint();
+                });
+
                 HttpRequest request = HttpRequest.newBuilder()
                         .uri(URI.create(url))
                         .header("x-api-key", API_KEY)
@@ -323,13 +377,16 @@ public class CurseForgeBrowser {
 
                 JsonArray data = root.getAsJsonArray("data");
 
-                for (JsonElement element : data) {
+                java.util.Set<Integer> seenMods = new java.util.HashSet<>();
+            for (JsonElement element : data) {
 
                     JsonObject mod = element.getAsJsonObject();
 
+                    int modId = mod.get("id").getAsInt();
+                    if (!seenMods.add(modId)) continue;
+
                     String name = mod.get("name").getAsString();
                     String summary = mod.get("summary").getAsString();
-                    int modId = mod.get("id").getAsInt();
                     long downloads = mod.get("downloadCount").getAsLong();
 
                     String iconUrl = null;
@@ -348,6 +405,10 @@ public class CurseForgeBrowser {
 
                     // 🔥 Mod-Dateien direkt holen
                     java.util.List<FileInfo> files = getFiles(modId);
+
+                    if (!matchesFilter(files, currentLoaderFilter, currentVersionFilter)) {
+                        continue;
+                    }
 
                     // 🔥 Karte erstellen (mit Install-Button)
                     JPanel card = createModCard(
@@ -368,12 +429,35 @@ public class CurseForgeBrowser {
             @Override
             protected void process(List<JPanel> cards) {
 
+                if (statusLabel.getParent() == contentPanel) {
+                    contentPanel.removeAll();
+                }
+
                 for (JPanel card : cards) {
+                    card.setAlignmentX(Component.LEFT_ALIGNMENT);
                     contentPanel.add(card);
+                    contentPanel.add(Box.createVerticalStrut(10));
                 }
 
                 contentPanel.revalidate();
                 contentPanel.repaint();
+            }
+
+            @Override
+            protected void done() {
+                try {
+                    get();
+                } catch (Exception e) {
+                    e.printStackTrace();
+                    SwingUtilities.invokeLater(() -> {
+                        contentPanel.removeAll();
+                        statusLabel.setText("Ein Problem ist aufgetreten");
+                        statusLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
+                        contentPanel.add(statusLabel);
+                        contentPanel.revalidate();
+                        contentPanel.repaint();
+                    });
+                }
             }
 
         }.execute();
@@ -381,25 +465,95 @@ public class CurseForgeBrowser {
 
     static boolean isCompatible(ProfileInfo p, FileInfo f) {
 
-        boolean versionMatch =
-                f.gameVersion != null &&
-                        f.gameVersion.equalsIgnoreCase(p.version);
+        String profileVersion = p.version.toLowerCase();
 
-        boolean loaderMatch = false;
+        boolean versionMatch = !f.gameVersions.isEmpty() && f.gameVersions.stream().anyMatch(gv ->
+                gv.equals(profileVersion)
+                        || gv.contains(profileVersion)
+                        || profileVersion.contains(gv)
+        );
 
-        switch (p.loader.toLowerCase()) {
-            case "fabric":
-                loaderMatch = (f.modLoader == 4);
-                break;
-            case "forge":
-                loaderMatch = (f.modLoader == 1);
-                break;
-            case "neoforge":
-                loaderMatch = (f.modLoader == 6);
-                break;
+        if (!versionMatch) {
+            return false;
         }
 
-        return versionMatch && loaderMatch;
+        // Loader-Abgleich
+        String profileLoader = p.loader.toLowerCase();
+        if (f.modLoader == -1) {
+            return true;
+        }
+
+        switch (profileLoader) {
+            case "fabric":
+                return f.modLoader == 4;
+            case "forge":
+                return f.modLoader == 1;
+            case "neoforge":
+                return f.modLoader == 6;
+            case "vanilla":
+                return f.modLoader == -1;
+            default:
+                return true;
+        }
+    }
+
+    static boolean matchesFilter(FileInfo file, String loaderFilter, String versionFilter) {
+        String versionLower = versionFilter == null ? "" : versionFilter.toLowerCase();
+        String loaderLower = loaderFilter == null ? "all" : loaderFilter.toLowerCase();
+
+        boolean versionMatch = "all versions".equals(versionLower) || versionLower.isEmpty();
+        if (!versionMatch) {
+            versionMatch = !file.gameVersions.isEmpty() && file.gameVersions.stream().anyMatch(gv ->
+                    gv.equals(versionLower)
+                            || gv.contains(versionLower)
+                            || versionLower.contains(gv)
+            );
+        }
+
+        if (!versionMatch) {
+            return false;
+        }
+
+        if ("all" .equals(loaderLower)) {
+            return true;
+        }
+
+        int fileLoader = file.modLoader;
+        if (fileLoader == -1 && file.fileName != null) {
+            String lower = file.fileName.toLowerCase();
+            if (lower.contains("fabricapi") || lower.contains("fabric")) {
+                fileLoader = 4;
+            } else if (lower.contains("neoforge")) {
+                fileLoader = 6;
+            } else if (lower.contains("forge")) {
+                fileLoader = 1;
+            }
+        }
+
+        switch (loaderLower) {
+            case "fabric":
+                return fileLoader == 4;
+            case "forge":
+                return fileLoader == 1;
+            case "neoforge":
+                return fileLoader == 6;
+            case "vanilla":
+                return fileLoader == -1;
+            default:
+                return true;
+        }
+    }
+
+    static boolean matchesFilter(java.util.List<FileInfo> files, String loaderFilter, String versionFilter) {
+        if (files == null || files.isEmpty()) {
+            return false;
+        }
+        for (FileInfo file : files) {
+            if (matchesFilter(file, loaderFilter, versionFilter)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     static void openInstallPanel(int modId) {
@@ -451,56 +605,79 @@ public class CurseForgeBrowser {
     static JPanel createInstallCard(ProfileInfo profile, java.util.List<FileInfo> files) {
 
         JPanel card = new JPanel(new BorderLayout());
-        card.setMaximumSize(new Dimension(Integer.MAX_VALUE, 60));
+        card.setMaximumSize(new Dimension(Integer.MAX_VALUE, 80));
         card.setBackground(CARD);
+        card.setBorder(BorderFactory.createEmptyBorder(5, 10, 5, 10));
 
-        JLabel name = new JLabel(profile.name + " (" + profile.version + ")");
+        // 🔥 LEFT: Profil-Infos
+        JPanel leftPanel = new JPanel();
+        leftPanel.setLayout(new BoxLayout(leftPanel, BoxLayout.Y_AXIS));
+        leftPanel.setBackground(CARD);
+
+        JLabel name = new JLabel(profile.name);
         name.setForeground(Color.WHITE);
+        name.setFont(new Font("Arial", Font.BOLD, 14));
 
-        card.add(name, BorderLayout.WEST);
+        JLabel info = new JLabel(profile.version + " • " + profile.loader);
+        info.setForeground(Color.LIGHT_GRAY);
+        info.setFont(new Font("Arial", Font.PLAIN, 12));
+
+        leftPanel.add(name);
+        leftPanel.add(info);
+
+        card.add(leftPanel, BorderLayout.WEST);
 
         // 🔥 prüfen ob kompatible Datei existiert
-        boolean hasCompatibleVersion = false;
+        FileInfo bestMatch = null;
 
         for (FileInfo f : files) {
             if (isCompatible(profile, f)) {
-                hasCompatibleVersion = true;
-                break;
+                if (bestMatch == null || f.fileId > bestMatch.fileId) {
+                    bestMatch = f;
+                }
             }
         }
 
+        boolean hasCompatibleVersion = bestMatch != null;
+
         if (hasCompatibleVersion) {
+            // ✅ Kompatibel
+            JLabel compatible = new JLabel("✓ Compatible");
+            compatible.setForeground(new Color(100, 255, 100));
+            compatible.setFont(new Font("Arial", Font.BOLD, 12));
 
             JButton install = new JButton("Install");
+            install.setBackground(new Color(188, 19, 254));
+            install.setForeground(Color.WHITE);
+            
+            FileInfo finalBestMatch = bestMatch;
 
             install.addActionListener(e -> {
-
                 System.out.println("Start install for profile: " + profile.name);
-
-                FileInfo bestMatch = null;
-
-                for (FileInfo f : files) {
-
-                    if (isCompatible(profile, f)) {
-                        System.out.println("Compatible found: " + f.fileName);
-
-                        // Erste passende Datei nehmen (oder später verbessern)
-                        bestMatch = f;
-
-                        // Optional: bessere Auswahllogik hier rein
-                        break;
-                    }
-                }
-
-                if (bestMatch != null) {
-                    installToProfile(profile, bestMatch);
+                if (finalBestMatch != null) {
+                    // 🔥 Installation im Background-Thread!
+                    new Thread(() -> {
+                        installToProfile(profile, finalBestMatch);
+                    }).start();
                 } else {
                     System.out.println("No compatible file found!");
                 }
             });
 
-            card.add(install, BorderLayout.EAST);
+            JPanel rightPanel = new JPanel(new BorderLayout(10, 0));
+            rightPanel.setBackground(CARD);
+            rightPanel.add(compatible, BorderLayout.WEST);
+            rightPanel.add(install, BorderLayout.EAST);
+
+            card.add(rightPanel, BorderLayout.EAST);
+        } else {
+            // ❌ Nicht kompatibel
+            JLabel notCompatible = new JLabel("✗ Not compatible");
+            notCompatible.setForeground(new Color(255, 100, 100));
+            notCompatible.setFont(new Font("Arial", Font.BOLD, 12));
+            card.add(notCompatible, BorderLayout.EAST);
         }
+        
         return card;
     }
 
@@ -511,23 +688,48 @@ public class CurseForgeBrowser {
             Path modsDir = profile.path.resolve("mods");
             Files.createDirectories(modsDir);
 
-            HttpClient client = HttpClient.newHttpClient();
+            HttpClient client = HttpClient.newBuilder()
+                    .followRedirects(HttpClient.Redirect.ALWAYS)
+                    .build();
             HttpRequest request = HttpRequest.newBuilder()
                     .uri(URI.create(file.downloadUrl))
                     .build();
 
-            HttpResponse<InputStream> response =
-                    client.send(request, HttpResponse.BodyHandlers.ofInputStream());
+            // 🔥 WICHTIG: ofByteArray() statt ofInputStream()!
+            HttpResponse<byte[]> response =
+                    client.send(request, HttpResponse.BodyHandlers.ofByteArray());
+
+            if (response.statusCode() != 200) {
+                throw new IOException("Download failed: HTTP " + response.statusCode());
+            }
+
+            byte[] bytes = response.body();
+            if (bytes.length == 0) {
+                throw new IOException("Download result was empty for " + file.fileName);
+            }
 
             Path target = modsDir.resolve(file.fileName);
 
-            Files.copy(response.body(), target, StandardCopyOption.REPLACE_EXISTING);
+            // 🔥 Byte-Array direkt schreiben - zuverlässiger
+            Files.write(target, bytes, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
 
-            JOptionPane.showMessageDialog(null,
-                    "Installed in " + profile.name);
+            System.out.println("✓ Installed: " + file.fileName + " (" + bytes.length + " bytes)");
+
+            // 🔥 UI-Update auf dem EDT!
+            SwingUtilities.invokeLater(() -> {
+                JOptionPane.showMessageDialog(null,
+                        "Installed in " + profile.name + "\n(" + (response.body().length / 1024 / 1024) + " MB)");
+            });
 
         } catch (Exception e) {
             e.printStackTrace();
+            // 🔥 Fehlerbehandlung auf dem EDT!
+            SwingUtilities.invokeLater(() -> {
+                JOptionPane.showMessageDialog(null,
+                        "Error installing: " + e.getMessage(),
+                        "Installation Error",
+                        JOptionPane.ERROR_MESSAGE);
+            });
         }
     }
 
@@ -537,6 +739,7 @@ public class CurseForgeBrowser {
 
         JPanel card = new JPanel(new BorderLayout());
         card.setMaximumSize(new Dimension(Integer.MAX_VALUE, 120));
+        card.setAlignmentX(Component.LEFT_ALIGNMENT);
         card.setBackground(CARD);
         card.setBorder(BorderFactory.createCompoundBorder(
                 BorderFactory.createLineBorder(new Color(70, 70, 70)),
