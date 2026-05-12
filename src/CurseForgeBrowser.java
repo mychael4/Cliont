@@ -38,6 +38,8 @@ public class CurseForgeBrowser {
     private static int currentIndex = 0;
     private static final int pageSize = 20;
     private static String currentSearch = "";
+    private static String currentVersionFilter = "All Versions";
+    private static String currentLoaderFilter = "All";
 
     private static Timer searchTimer;
 
@@ -94,7 +96,47 @@ public class CurseForgeBrowser {
             public void changedUpdate(DocumentEvent e) { restartTimer(); }
         });
 
+        JPanel filterPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 10, 5));
+        filterPanel.setOpaque(false);
+
+        JComboBox<String> loaderFilter = new JComboBox<>(new String[]{
+                "All", "Vanilla", "Fabric", "Forge", "NeoForge"
+        });
+        loaderFilter.setPreferredSize(new Dimension(120, 28));
+        loaderFilter.setBackground(new Color(70, 70, 70));
+        loaderFilter.setForeground(Color.WHITE);
+
+        JComboBox<String> versionFilter = new JComboBox<>();
+        versionFilter.setPreferredSize(new Dimension(140, 28));
+        versionFilter.setBackground(new Color(70, 70, 70));
+        versionFilter.setForeground(Color.WHITE);
+        versionFilter.addItem("All Versions");
+
+        java.util.Set<String> versions = new java.util.TreeSet<>();
+        for (ProfileInfo profile : getProfiles()) {
+            versions.add(profile.version);
+        }
+        for (String version : versions) {
+            versionFilter.addItem(version);
+        }
+
+        loaderFilter.addActionListener(e -> {
+            currentLoaderFilter = (String) loaderFilter.getSelectedItem();
+            doSearch();
+        });
+
+        versionFilter.addActionListener(e -> {
+            currentVersionFilter = (String) versionFilter.getSelectedItem();
+            doSearch();
+        });
+
+        filterPanel.add(new JLabel("Version:"));
+        filterPanel.add(versionFilter);
+        filterPanel.add(new JLabel("Loader:"));
+        filterPanel.add(loaderFilter);
+
         topPanel.add(searchField, BorderLayout.CENTER);
+        topPanel.add(filterPanel, BorderLayout.SOUTH);
         mainPanel.add(topPanel, BorderLayout.NORTH);
 
         // ---------- MOD LIST ----------
@@ -364,6 +406,10 @@ public class CurseForgeBrowser {
                     // 🔥 Mod-Dateien direkt holen
                     java.util.List<FileInfo> files = getFiles(modId);
 
+                    if (!matchesFilter(files, currentLoaderFilter, currentVersionFilter)) {
+                        continue;
+                    }
+
                     // 🔥 Karte erstellen (mit Install-Button)
                     JPanel card = createModCard(
                             name,
@@ -449,6 +495,65 @@ public class CurseForgeBrowser {
             default:
                 return true;
         }
+    }
+
+    static boolean matchesFilter(FileInfo file, String loaderFilter, String versionFilter) {
+        String versionLower = versionFilter == null ? "" : versionFilter.toLowerCase();
+        String loaderLower = loaderFilter == null ? "all" : loaderFilter.toLowerCase();
+
+        boolean versionMatch = "all versions".equals(versionLower) || versionLower.isEmpty();
+        if (!versionMatch) {
+            versionMatch = !file.gameVersions.isEmpty() && file.gameVersions.stream().anyMatch(gv ->
+                    gv.equals(versionLower)
+                            || gv.contains(versionLower)
+                            || versionLower.contains(gv)
+            );
+        }
+
+        if (!versionMatch) {
+            return false;
+        }
+
+        if ("all" .equals(loaderLower)) {
+            return true;
+        }
+
+        int fileLoader = file.modLoader;
+        if (fileLoader == -1 && file.fileName != null) {
+            String lower = file.fileName.toLowerCase();
+            if (lower.contains("fabricapi") || lower.contains("fabric")) {
+                fileLoader = 4;
+            } else if (lower.contains("neoforge")) {
+                fileLoader = 6;
+            } else if (lower.contains("forge")) {
+                fileLoader = 1;
+            }
+        }
+
+        switch (loaderLower) {
+            case "fabric":
+                return fileLoader == 4;
+            case "forge":
+                return fileLoader == 1;
+            case "neoforge":
+                return fileLoader == 6;
+            case "vanilla":
+                return fileLoader == -1;
+            default:
+                return true;
+        }
+    }
+
+    static boolean matchesFilter(java.util.List<FileInfo> files, String loaderFilter, String versionFilter) {
+        if (files == null || files.isEmpty()) {
+            return false;
+        }
+        for (FileInfo file : files) {
+            if (matchesFilter(file, loaderFilter, versionFilter)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     static void openInstallPanel(int modId) {
