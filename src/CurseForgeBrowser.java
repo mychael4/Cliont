@@ -535,7 +535,9 @@ public class CurseForgeBrowser {
             Path modsDir = profile.path.resolve("mods");
             Files.createDirectories(modsDir);
 
-            HttpClient client = HttpClient.newHttpClient();
+            HttpClient client = HttpClient.newBuilder()
+                    .followRedirects(HttpClient.Redirect.ALWAYS)
+                    .build();
             HttpRequest request = HttpRequest.newBuilder()
                     .uri(URI.create(file.downloadUrl))
                     .build();
