@@ -493,7 +493,11 @@ public class CurseForgeBrowser {
                 }
 
                 if (bestMatch != null) {
-                    installToProfile(profile, bestMatch);
+                    // 🔥 Installation im Background-Thread!
+                    FileInfo finalBestMatch = bestMatch;
+                    new Thread(() -> {
+                        installToProfile(profile, finalBestMatch);
+                    }).start();
                 } else {
                     System.out.println("No compatible file found!");
                 }
@@ -523,11 +527,21 @@ public class CurseForgeBrowser {
 
             Files.copy(response.body(), target, StandardCopyOption.REPLACE_EXISTING);
 
-            JOptionPane.showMessageDialog(null,
-                    "Installed in " + profile.name);
+            // 🔥 UI-Update auf dem EDT!
+            SwingUtilities.invokeLater(() -> {
+                JOptionPane.showMessageDialog(null,
+                        "Installed in " + profile.name);
+            });
 
         } catch (Exception e) {
             e.printStackTrace();
+            // 🔥 Fehlerbehandlung auf dem EDT!
+            SwingUtilities.invokeLater(() -> {
+                JOptionPane.showMessageDialog(null,
+                        "Error installing: " + e.getMessage(),
+                        "Installation Error",
+                        JOptionPane.ERROR_MESSAGE);
+            });
         }
     }
 
