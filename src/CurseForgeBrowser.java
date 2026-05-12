@@ -140,7 +140,7 @@ public class CurseForgeBrowser {
     static class FileInfo {
         String downloadUrl;
         String fileName;
-        String gameVersion;
+        java.util.List<String> gameVersions;
         int modLoader; // 4 = Fabric
     }
 
@@ -238,7 +238,7 @@ public class CurseForgeBrowser {
                 }
 
                 // Standardwerte
-                info.gameVersion = null;
+                info.gameVersions = new java.util.ArrayList<>();
                 info.modLoader = -1;
 
                 // 🔥 gameVersions sauber auslesen
@@ -247,22 +247,16 @@ public class CurseForgeBrowser {
                     JsonArray gv = f.getAsJsonArray("gameVersions");
 
                     for (JsonElement versionElement : gv) {
-
-                        String v = versionElement.getAsString().toLowerCase();
-
-                        // Minecraft-Version erkennen
-                        if (v.matches("\\d+\\.\\d+(\\.\\d+)?")) {
-                            info.gameVersion = v;
-                        }
+                        String v = versionElement.getAsString();
+                        info.gameVersions.add(v.toLowerCase());
 
                         // Loader erkennen
-                        if (v.contains("fabric")) {
+                        String lower = v.toLowerCase();
+                        if (lower.contains("fabric")) {
                             info.modLoader = 4;
-                        }
-                        else if (v.contains("neoforge")) {
+                        } else if (lower.contains("neoforge")) {
                             info.modLoader = 6;
-                        }
-                        else if (v.contains("forge")) {
+                        } else if (lower.contains("forge")) {
                             info.modLoader = 1;
                         }
                     }
@@ -382,9 +376,13 @@ public class CurseForgeBrowser {
 
     static boolean isCompatible(ProfileInfo p, FileInfo f) {
 
-        boolean versionMatch =
-                f.gameVersion != null &&
-                        f.gameVersion.equalsIgnoreCase(p.version);
+        String profileVersion = p.version.toLowerCase();
+
+        boolean versionMatch = f.gameVersions.stream().anyMatch(gv ->
+                gv.equals(profileVersion)
+                        || gv.contains(profileVersion)
+                        || profileVersion.contains(gv)
+        );
 
         boolean loaderMatch = false;
 
@@ -397,6 +395,9 @@ public class CurseForgeBrowser {
                 break;
             case "neoforge":
                 loaderMatch = (f.modLoader == 6);
+                break;
+            case "vanilla":
+                loaderMatch = (f.modLoader == -1);
                 break;
         }
 
@@ -543,12 +544,21 @@ public class CurseForgeBrowser {
             HttpResponse<byte[]> response =
                     client.send(request, HttpResponse.BodyHandlers.ofByteArray());
 
+            if (response.statusCode() != 200) {
+                throw new IOException("Download failed: HTTP " + response.statusCode());
+            }
+
+            byte[] bytes = response.body();
+            if (bytes.length == 0) {
+                throw new IOException("Download result was empty for " + file.fileName);
+            }
+
             Path target = modsDir.resolve(file.fileName);
 
             // 🔥 Byte-Array direkt schreiben - zuverlässiger
-            Files.write(target, response.body(), StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+            Files.write(target, bytes, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
 
-            System.out.println("✓ Installed: " + file.fileName + " (" + response.body().length + " bytes)");
+            System.out.println("✓ Installed: " + file.fileName + " (" + bytes.length + " bytes)");
 
             // 🔥 UI-Update auf dem EDT!
             SwingUtilities.invokeLater(() -> {
