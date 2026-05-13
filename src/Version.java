@@ -118,8 +118,10 @@ public class Version {
         // =========================
         // 📦 MOD LIST
         // =========================
-        JPanel modsPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        JPanel modsPanel = new JPanel();
+        modsPanel.setLayout(new BoxLayout(modsPanel, BoxLayout.Y_AXIS));
         modsPanel.setBackground(bg);
+        modsPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
 
         JScrollPane scroll = new JScrollPane(modsPanel);
         root.add(scroll, BorderLayout.CENTER);
@@ -178,20 +180,18 @@ public class Version {
     static JPanel createModCard(Path modPath) {
 
         JPanel card = new JPanel(new BorderLayout());
-        card.setPreferredSize(new Dimension(120, 140));
+        card.setMaximumSize(new Dimension(Integer.MAX_VALUE, 50));
         card.setBackground(new Color(70, 70, 70));
-
-        // 🔥 Fake Icon (später aus .jar lesen möglich)
-        ImageIcon icon = new ImageIcon(Version.class.getResource("/Icon.png"));
-        JLabel img = new JLabel(new ImageIcon(
-                icon.getImage().getScaledInstance(100, 100, Image.SCALE_SMOOTH)
+        card.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createMatteBorder(0, 0, 1, 0, new Color(90, 90, 90)),
+                BorderFactory.createEmptyBorder(8, 10, 8, 10)
         ));
 
-        JLabel name = new JLabel(modPath.getFileName().toString(), SwingConstants.CENTER);
+        JLabel name = new JLabel(modPath.getFileName().toString());
         name.setForeground(Color.WHITE);
+        name.setFont(new Font("Arial", Font.PLAIN, 14));
 
-        card.add(img, BorderLayout.NORTH);
-        card.add(name, BorderLayout.SOUTH);
+        card.add(name, BorderLayout.WEST);
 
         return card;
     }
@@ -594,7 +594,7 @@ public class Version {
         if (os.contains("win")) {
             osKey = "windows";
         } else if (os.contains("mac")) {
-            osKey = "osx";
+            osKey = "macos";
         } else {
             osKey = "linux";
         }
