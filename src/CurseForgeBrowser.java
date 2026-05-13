@@ -37,6 +37,7 @@ public class CurseForgeBrowser {
 
     private static int currentIndex = 0;
     private static final int pageSize = 20;
+    private static final int filePageSize = 100;
     private static String currentSearch = "";
     private static String currentVersionFilter = "All Versions";
     private static String currentLoaderFilter = "All";
@@ -246,26 +247,35 @@ public class CurseForgeBrowser {
 
         try {
 
-            String url = "https://api.curseforge.com/v1/mods/" + modId + "/files";
-
             HttpClient client = HttpClient.newHttpClient();
+            int pageIndex = 0;
 
-            HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(url))
-                    .header("x-api-key", API_KEY)
-                    .GET()
-                    .build();
+            while (true) {
+                String url = "https://api.curseforge.com/v1/mods/" + modId + "/files"
+                        + "?pageSize=" + filePageSize
+                        + "&index=" + pageIndex;
 
-            HttpResponse<String> response = client.send(
-                    request,
-                    HttpResponse.BodyHandlers.ofString()
-            );
+                HttpRequest request = HttpRequest.newBuilder()
+                        .uri(URI.create(url))
+                        .header("x-api-key", API_KEY)
+                        .GET()
+                        .build();
 
-            JsonArray files = JsonParser.parseString(response.body())
-                    .getAsJsonObject()
-                    .getAsJsonArray("data");
+                HttpResponse<String> response = client.send(
+                        request,
+                        HttpResponse.BodyHandlers.ofString()
+                );
 
-            for (JsonElement el : files) {
+                JsonObject root = JsonParser.parseString(response.body()).getAsJsonObject();
+                JsonArray files = root.has("data")
+                        ? root.getAsJsonArray("data")
+                        : null;
+
+                if (files == null || files.size() == 0) {
+                    break;
+                }
+
+                for (JsonElement el : files) {
 
                 JsonObject f = el.getAsJsonObject();
 
@@ -321,6 +331,13 @@ public class CurseForgeBrowser {
                 }
 
                 list.add(info);
+            }
+
+                if (files.size() < filePageSize) {
+                    break;
+                }
+
+                pageIndex += filePageSize;
             }
 
         } catch (Exception e) {
