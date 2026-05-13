@@ -602,6 +602,98 @@ public class CurseForgeBrowser {
         Mods.modsLayout.show(Mods.modsPanel, key);
     }
 
+    static void openVersionPanel(int modId) {
+
+        JPanel list = new JPanel();
+        list.setLayout(new BoxLayout(list, BoxLayout.Y_AXIS));
+        list.setBackground(BG);
+
+        JPanel panel = new JPanel(new BorderLayout());
+        panel.setBackground(BG);
+
+        JScrollPane scroll = new JScrollPane(list);
+        panel.add(scroll, BorderLayout.CENTER);
+
+        JButton back = new JButton("←");
+        back.addActionListener(e -> Mods.modsLayout.show(Mods.modsPanel, "browser"));
+        panel.add(back, BorderLayout.NORTH);
+
+        new SwingWorker<Void, JPanel>() {
+
+            protected Void doInBackground() {
+                java.util.List<FileInfo> files = getFiles(modId);
+
+                if (files.isEmpty()) {
+                    publish(createVersionInfoCard(null));
+                } else {
+                    for (FileInfo file : files) {
+                        publish(createVersionInfoCard(file));
+                    }
+                }
+                return null;
+            }
+
+            protected void process(java.util.List<JPanel> cards) {
+                for (JPanel c : cards) list.add(c);
+                list.revalidate();
+            }
+
+        }.execute();
+
+        String key = "versions_" + modId;
+        Mods.modsPanel.add(panel, key);
+        Mods.modsLayout.show(Mods.modsPanel, key);
+    }
+
+    private static JPanel createVersionInfoCard(FileInfo file) {
+        JPanel card = new JPanel(new BorderLayout());
+        card.setMaximumSize(new Dimension(Integer.MAX_VALUE, 90));
+        card.setBackground(CARD);
+        card.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(new Color(70, 70, 70)),
+                BorderFactory.createEmptyBorder(10, 10, 10, 10)
+        ));
+
+        if (file == null) {
+            JLabel empty = new JLabel("Keine Versionen gefunden.");
+            empty.setForeground(Color.LIGHT_GRAY);
+            card.add(empty, BorderLayout.CENTER);
+            return card;
+        }
+
+        String loaderName;
+        switch (file.modLoader) {
+            case 4 -> loaderName = "Fabric";
+            case 1 -> loaderName = "Forge";
+            case 6 -> loaderName = "NeoForge";
+            default -> loaderName = "Vanilla";
+        }
+
+        String versions = "unbekannt";
+        if (file.gameVersions != null && !file.gameVersions.isEmpty()) {
+            versions = String.join(", ", file.gameVersions);
+        }
+
+        JLabel title = new JLabel(file.fileName);
+        title.setForeground(Color.WHITE);
+        title.setFont(new Font("Arial", Font.BOLD, 14));
+
+        JLabel sub = new JLabel("Loader: " + loaderName + " • Minecraft: " + versions);
+        sub.setForeground(Color.LIGHT_GRAY);
+        sub.setFont(new Font("Arial", Font.PLAIN, 12));
+
+        JPanel text = new JPanel();
+        text.setLayout(new BoxLayout(text, BoxLayout.Y_AXIS));
+        text.setBackground(CARD);
+        text.add(title);
+        text.add(Box.createVerticalStrut(4));
+        text.add(sub);
+
+        card.add(text, BorderLayout.CENTER);
+
+        return card;
+    }
+
     static JPanel createInstallCard(ProfileInfo profile, java.util.List<FileInfo> files) {
 
         JPanel card = new JPanel(new BorderLayout());
@@ -737,7 +829,7 @@ public class CurseForgeBrowser {
 
         Color Cliont = new Color(43, 43, 43);
 
-        JPanel card = new JPanel(new BorderLayout());
+        JPanel card = new JPanel(new BorderLayout(10, 0));
         card.setMaximumSize(new Dimension(Integer.MAX_VALUE, 120));
         card.setAlignmentX(Component.LEFT_ALIGNMENT);
         card.setBackground(CARD);
@@ -746,9 +838,11 @@ public class CurseForgeBrowser {
                 BorderFactory.createEmptyBorder(10, 10, 10, 10)
         ));
 
+        card.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
         card.addMouseListener(new MouseAdapter() {
             public void mouseEntered(MouseEvent e) { card.setBackground(HOVER); }
             public void mouseExited(MouseEvent e) { card.setBackground(CARD); }
+            public void mouseClicked(MouseEvent e) { openVersionPanel(modId); }
         });
 
         JLabel iconLabel = new JLabel();
@@ -763,10 +857,8 @@ public class CurseForgeBrowser {
         card.add(iconLabel, BorderLayout.WEST);
 
         JPanel textPanel = new JPanel();
-        textPanel.setBackground(new Color(70, 70, 70)); // Hintergrundfarbe der Box
-        textPanel.setForeground(Color.WHITE);
-        textPanel.setLayout(new BoxLayout(textPanel, BoxLayout.Y_AXIS));
         textPanel.setBackground(CARD);
+        textPanel.setLayout(new BoxLayout(textPanel, BoxLayout.Y_AXIS));
 
         JLabel nameLabel = new JLabel(name);
         nameLabel.setFont(new Font("Arial", Font.BOLD, 16));
@@ -778,13 +870,21 @@ public class CurseForgeBrowser {
         JLabel downloadLabel = new JLabel(NumberFormat.getInstance().format(downloads) + " downloads");
         downloadLabel.setForeground(Cliont);
 
+        JLabel hintLabel = new JLabel("Klick zum Anzeigen aller verfügbaren Versionen");
+        hintLabel.setForeground(Color.GRAY);
+        hintLabel.setFont(new Font("Arial", Font.ITALIC, 11));
+
         textPanel.add(nameLabel);
         textPanel.add(summaryLabel);
         textPanel.add(downloadLabel);
+        textPanel.add(Box.createVerticalStrut(4));
+        textPanel.add(hintLabel);
         card.add(textPanel, BorderLayout.CENTER);
 
         JButton installButton = new JButton("Install");
         installButton.setBackground(Cliont);
+        installButton.setForeground(Color.WHITE);
+        installButton.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
         installButton.addActionListener(e -> openInstallPanel(modId));
         card.add(installButton, BorderLayout.EAST);
 
