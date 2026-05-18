@@ -392,10 +392,15 @@ public class CurseForgeBrowser {
                 JsonObject root = JsonParser.parseString(response.body())
                         .getAsJsonObject();
 
-                JsonArray data = root.getAsJsonArray("data");
+                JsonArray data = null;
+                if (root.has("data") && !root.get("data").isJsonNull() && root.get("data").isJsonArray()) {
+                    data = root.getAsJsonArray("data");
+                } else {
+                    data = new JsonArray();
+                }
 
                 java.util.Set<Integer> seenMods = new java.util.HashSet<>();
-            for (JsonElement element : data) {
+                for (JsonElement element : data) {
 
                     JsonObject mod = element.getAsJsonObject();
 
