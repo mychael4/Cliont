@@ -32,7 +32,7 @@ public class Version {
         return mainPanel;
     }
 
-    static JPanel ProfileView(Path profilePath) {
+    static JPanel createProfileView(Path profilePath) {
 
         Color bg = new Color(43, 43, 43);
         Color Cliont = new Color(188, 19, 254);
@@ -1080,95 +1080,5 @@ public class Version {
         }
 
         throw new RuntimeException("Java runtime not found after extraction");
-    }
-
-    public static void installFabricApi(String minecraftVersion, Path profileDir) throws Exception {
-        // mods-Ordner erstellen
-        Path modsDir = profileDir.resolve("mods");
-        Files.createDirectories(modsDir);
-
-        // CurseForge API-Key (muss in deinem Programm hinterlegt sein)
-        String apiKey = "$2a$10$8ZIpAo3NEB6uw9njXQP.Ge3cA2uG9HLaktlDbEEH3YpfNdFwGd/pq";
-
-        // Fabric API Projekt-ID auf CurseForge
-        // https://www.curseforge.com/minecraft/mc-mods/fabric-api
-        int projectId = 306612;
-
-        HttpClient client = HttpClient.newHttpClient();
-
-        // Alle Dateien des Projekts abrufen
-        String apiUrl = "https://api.curseforge.com/v1/mods/" + projectId + "/files";
-
-        HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create(apiUrl))
-                .header("x-api-key", apiKey)
-                .header("User-Agent", "Cliont Launcher")
-                .build();
-
-        HttpResponse<String> response =
-                client.send(request, HttpResponse.BodyHandlers.ofString());
-
-        JsonObject root = JsonParser.parseString(response.body()).getAsJsonObject();
-        JsonArray files = root.getAsJsonArray("data");
-
-        JsonObject selectedFile = null;
-
-        // Neueste passende Datei finden
-        for (JsonElement element : files) {
-            JsonObject file = element.getAsJsonObject();
-
-            // Minecraft-Versionen prüfen
-            JsonArray gameVersions = file.getAsJsonArray("gameVersions");
-
-            boolean versionMatches = false;
-            boolean hasFabric = false;
-
-            for (JsonElement gv : gameVersions) {
-                String value = gv.getAsString();
-
-                if (value.equals(minecraftVersion)) {
-                    versionMatches = true;
-                }
-
-                if (value.equalsIgnoreCase("Fabric")) {
-                    hasFabric = true;
-                }
-            }
-
-            if (versionMatches && hasFabric) {
-                selectedFile = file;
-                break; // Die Liste ist normalerweise absteigend sortiert (neueste zuerst)
-            }
-        }
-
-        if (selectedFile == null) {
-            throw new RuntimeException(
-                    "Keine kompatible Fabric API für Minecraft " + minecraftVersion + " gefunden.");
-        }
-
-        String downloadUrl = selectedFile.get("downloadUrl").getAsString();
-        String fileName = selectedFile.get("fileName").getAsString();
-
-        if (downloadUrl == null || downloadUrl.equals("null")) {
-            throw new RuntimeException("CurseForge hat keine Download-URL zurückgegeben.");
-        }
-
-        Path target = modsDir.resolve(fileName);
-
-        // Bereits vorhanden?
-        if (Files.exists(target)) {
-            System.out.println("Fabric API ist bereits installiert.");
-            return;
-        }
-
-        // Datei herunterladen
-        HttpRequest downloadRequest = HttpRequest.newBuilder()
-                .uri(URI.create(downloadUrl))
-                .header("User-Agent", "Cliont Launcher")
-                .build();
-
-        client.send(downloadRequest, HttpResponse.BodyHandlers.ofFile(target));
-
-        System.out.println("Fabric API erfolgreich installiert: " + fileName);
     }
 }

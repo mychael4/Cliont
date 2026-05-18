@@ -37,7 +37,6 @@ public class CurseForgeBrowser {
 
     private static int currentIndex = 0;
     private static final int pageSize = 20;
-    private static final int filePageSize = 100;
     private static String currentSearch = "";
     private static String currentVersionFilter = "All Versions";
     private static String currentLoaderFilter = "All";
@@ -247,35 +246,26 @@ public class CurseForgeBrowser {
 
         try {
 
+            String url = "https://api.curseforge.com/v1/mods/" + modId + "/files";
+
             HttpClient client = HttpClient.newHttpClient();
-            int pageIndex = 0;
 
-            while (true) {
-                String url = "https://api.curseforge.com/v1/mods/" + modId + "/files"
-                        + "?pageSize=" + filePageSize
-                        + "&index=" + pageIndex;
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(url))
+                    .header("x-api-key", API_KEY)
+                    .GET()
+                    .build();
 
-                HttpRequest request = HttpRequest.newBuilder()
-                        .uri(URI.create(url))
-                        .header("x-api-key", API_KEY)
-                        .GET()
-                        .build();
+            HttpResponse<String> response = client.send(
+                    request,
+                    HttpResponse.BodyHandlers.ofString()
+            );
 
-                HttpResponse<String> response = client.send(
-                        request,
-                        HttpResponse.BodyHandlers.ofString()
-                );
+            JsonArray files = JsonParser.parseString(response.body())
+                    .getAsJsonObject()
+                    .getAsJsonArray("data");
 
-                JsonObject root = JsonParser.parseString(response.body()).getAsJsonObject();
-                JsonArray files = root.has("data")
-                        ? root.getAsJsonArray("data")
-                        : null;
-
-                if (files == null || files.size() == 0) {
-                    break;
-                }
-
-                for (JsonElement el : files) {
+            for (JsonElement el : files) {
 
                 JsonObject f = el.getAsJsonObject();
 
@@ -333,13 +323,6 @@ public class CurseForgeBrowser {
                 list.add(info);
             }
 
-                if (files.size() < filePageSize) {
-                    break;
-                }
-
-                pageIndex += filePageSize;
-            }
-
         } catch (Exception e) {
             e.printStackTrace();
         }
@@ -392,15 +375,10 @@ public class CurseForgeBrowser {
                 JsonObject root = JsonParser.parseString(response.body())
                         .getAsJsonObject();
 
-                JsonArray data = null;
-                if (root.has("data") && !root.get("data").isJsonNull() && root.get("data").isJsonArray()) {
-                    data = root.getAsJsonArray("data");
-                } else {
-                    data = new JsonArray();
-                }
+                JsonArray data = root.getAsJsonArray("data");
 
                 java.util.Set<Integer> seenMods = new java.util.HashSet<>();
-                for (JsonElement element : data) {
+            for (JsonElement element : data) {
 
                     JsonObject mod = element.getAsJsonObject();
 
