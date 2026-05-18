@@ -36,8 +36,7 @@ public class CurseForgeBrowser {
     private static JTextField searchField;
 
     private static int currentIndex = 0;
-    private static final int pageSize = 20;
-    private static final int filePageSize = 100;
+    private static int pageSize = 20;
     private static String currentSearch = "";
     private static String currentVersionFilter = "All Versions";
     private static String currentLoaderFilter = "All";
@@ -247,35 +246,26 @@ public class CurseForgeBrowser {
 
         try {
 
+            String url = "https://api.curseforge.com/v1/mods/" + modId + "/files";
+
             HttpClient client = HttpClient.newHttpClient();
-            int pageIndex = 0;
 
-            while (true) {
-                String url = "https://api.curseforge.com/v1/mods/" + modId + "/files"
-                        + "?pageSize=" + filePageSize
-                        + "&index=" + pageIndex;
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(url))
+                    .header("x-api-key", API_KEY)
+                    .GET()
+                    .build();
 
-                HttpRequest request = HttpRequest.newBuilder()
-                        .uri(URI.create(url))
-                        .header("x-api-key", API_KEY)
-                        .GET()
-                        .build();
+            HttpResponse<String> response = client.send(
+                    request,
+                    HttpResponse.BodyHandlers.ofString()
+            );
 
-                HttpResponse<String> response = client.send(
-                        request,
-                        HttpResponse.BodyHandlers.ofString()
-                );
+            JsonArray files = JsonParser.parseString(response.body())
+                    .getAsJsonObject()
+                    .getAsJsonArray("data");
 
-                JsonObject root = JsonParser.parseString(response.body()).getAsJsonObject();
-                JsonArray files = root.has("data")
-                        ? root.getAsJsonArray("data")
-                        : null;
-
-                if (files == null || files.size() == 0) {
-                    break;
-                }
-
-                for (JsonElement el : files) {
+            for (JsonElement el : files) {
 
                 JsonObject f = el.getAsJsonObject();
 
@@ -333,13 +323,6 @@ public class CurseForgeBrowser {
                 list.add(info);
             }
 
-                if (files.size() < filePageSize) {
-                    break;
-                }
-
-                pageIndex += filePageSize;
-            }
-
         } catch (Exception e) {
             e.printStackTrace();
         }
@@ -354,20 +337,12 @@ public class CurseForgeBrowser {
             @Override
             protected Void doInBackground() throws Exception {
 
-                String url = "https://api.curseforge.com/v1/mods/search"
-                        + "?gameId=" + GAME_ID
-                        + "&sortField=2"
-                        + "&sortOrder=desc"
-                        + "&pageSize=" + pageSize
-                        + "&index=" + currentIndex;
-
-                if (!currentSearch.isEmpty()) {
-                    url += "&searchFilter="
-                            + URLEncoder.encode(currentSearch, StandardCharsets.UTF_8);
-                }
-
                 HttpClient client = HttpClient.newHttpClient();
 
+                int index = currentIndex;
+                boolean hasMore = true;
+
+// UI einmal setzen
                 SwingUtilities.invokeLater(() -> {
                     contentPanel.removeAll();
                     statusLabel.setText("Lade Mods...");
@@ -377,72 +352,87 @@ public class CurseForgeBrowser {
                     contentPanel.repaint();
                 });
 
-                HttpRequest request = HttpRequest.newBuilder()
-                        .uri(URI.create(url))
-                        .header("x-api-key", API_KEY)
-                        .header("Accept", "application/json")
-                        .GET()
-                        .build();
+                while (hasMore) {
 
-                HttpResponse<String> response = client.send(
-                        request,
-                        HttpResponse.BodyHandlers.ofString()
-                );
+                    String url = "https://api.curseforge.com/v1/mods/search"
+                            + "?gameId=" + GAME_ID
+                            + "&sortField=2"
+                            + "&sortOrder=desc"
+                            + "&pageSize=" + pageSize
+                            + "&index=" + index;
 
-                JsonObject root = JsonParser.parseString(response.body())
-                        .getAsJsonObject();
-
-                JsonArray data = null;
-                if (root.has("data") && !root.get("data").isJsonNull() && root.get("data").isJsonArray()) {
-                    data = root.getAsJsonArray("data");
-                } else {
-                    data = new JsonArray();
-                }
-
-                java.util.Set<Integer> seenMods = new java.util.HashSet<>();
-                for (JsonElement element : data) {
-
-                    JsonObject mod = element.getAsJsonObject();
-
-                    int modId = mod.get("id").getAsInt();
-                    if (!seenMods.add(modId)) continue;
-
-                    String name = mod.get("name").getAsString();
-                    String summary = mod.get("summary").getAsString();
-                    long downloads = mod.get("downloadCount").getAsLong();
-
-                    String iconUrl = null;
-
-                    if (mod.has("logo")
-                            && !mod.get("logo").isJsonNull()) {
-
-                        JsonObject logo = mod.getAsJsonObject("logo");
-
-                        if (logo.has("thumbnailUrl")
-                                && !logo.get("thumbnailUrl").isJsonNull()) {
-
-                            iconUrl = logo.get("thumbnailUrl").getAsString();
-                        }
+                    if (!currentSearch.isEmpty()) {
+                        url += "&searchFilter=" +
+                                URLEncoder.encode(currentSearch, StandardCharsets.UTF_8);
                     }
 
-                    // 🔥 Mod-Dateien direkt holen
-                    java.util.List<FileInfo> files = getFiles(modId);
+                    HttpRequest request = HttpRequest.newBuilder()
+                            .uri(URI.create(url))
+                            .header("x-api-key", API_KEY)
+                            .header("Accept", "application/json")
+                            .GET()
+                            .build();
 
-                    if (!matchesFilter(files, currentLoaderFilter, currentVersionFilter)) {
-                        continue;
-                    }
-
-                    // 🔥 Karte erstellen (mit Install-Button)
-                    JPanel card = createModCard(
-                            name,
-                            summary,
-                            iconUrl,
-                            modId,
-                            downloads,
-                            files
+                    HttpResponse<String> response = client.send(
+                            request,
+                            HttpResponse.BodyHandlers.ofString()
                     );
 
-                    publish(card);
+                    JsonObject root = JsonParser.parseString(response.body()).getAsJsonObject();
+
+                    JsonArray data = root.has("data")
+                            ? root.getAsJsonArray("data")
+                            : new JsonArray();
+
+                    if (data.isEmpty()) {
+                        break;
+                    }
+
+                    java.util.Set<Integer> seenMods = new java.util.HashSet<>();
+
+                    for (JsonElement element : data) {
+
+                        JsonObject mod = element.getAsJsonObject();
+
+                        int modId = mod.get("id").getAsInt();
+                        if (!seenMods.add(modId)) continue;
+
+                        String name = mod.get("name").getAsString();
+                        String summary = mod.get("summary").getAsString();
+                        long downloads = mod.get("downloadCount").getAsLong();
+
+                        String iconUrl = null;
+
+                        if (mod.has("logo") && !mod.get("logo").isJsonNull()) {
+                            JsonObject logo = mod.getAsJsonObject("logo");
+                            if (logo.has("thumbnailUrl")) {
+                                iconUrl = logo.get("thumbnailUrl").getAsString();
+                            }
+                        }
+
+                        List<FileInfo> files = getFiles(modId);
+
+                        if (!matchesFilter(files, currentLoaderFilter, currentVersionFilter)) {
+                            continue;
+                        }
+
+                        JPanel card = createModCard(
+                                name,
+                                summary,
+                                iconUrl,
+                                modId,
+                                downloads,
+                                files
+                        );
+
+                        publish(card);
+                    }
+
+                    if (data.size() < pageSize) {
+                        hasMore = false;
+                    } else {
+                        index += pageSize;
+                    }
                 }
 
                 return null;
@@ -624,98 +614,6 @@ public class CurseForgeBrowser {
         Mods.modsLayout.show(Mods.modsPanel, key);
     }
 
-    static void openVersionPanel(int modId) {
-
-        JPanel list = new JPanel();
-        list.setLayout(new BoxLayout(list, BoxLayout.Y_AXIS));
-        list.setBackground(BG);
-
-        JPanel panel = new JPanel(new BorderLayout());
-        panel.setBackground(BG);
-
-        JScrollPane scroll = new JScrollPane(list);
-        panel.add(scroll, BorderLayout.CENTER);
-
-        JButton back = new JButton("←");
-        back.addActionListener(e -> Mods.modsLayout.show(Mods.modsPanel, "browser"));
-        panel.add(back, BorderLayout.NORTH);
-
-        new SwingWorker<Void, JPanel>() {
-
-            protected Void doInBackground() {
-                java.util.List<FileInfo> files = getFiles(modId);
-
-                if (files.isEmpty()) {
-                    publish(createVersionInfoCard(null));
-                } else {
-                    for (FileInfo file : files) {
-                        publish(createVersionInfoCard(file));
-                    }
-                }
-                return null;
-            }
-
-            protected void process(java.util.List<JPanel> cards) {
-                for (JPanel c : cards) list.add(c);
-                list.revalidate();
-            }
-
-        }.execute();
-
-        String key = "versions_" + modId;
-        Mods.modsPanel.add(panel, key);
-        Mods.modsLayout.show(Mods.modsPanel, key);
-    }
-
-    private static JPanel createVersionInfoCard(FileInfo file) {
-        JPanel card = new JPanel(new BorderLayout());
-        card.setMaximumSize(new Dimension(Integer.MAX_VALUE, 90));
-        card.setBackground(CARD);
-        card.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createLineBorder(new Color(70, 70, 70)),
-                BorderFactory.createEmptyBorder(10, 10, 10, 10)
-        ));
-
-        if (file == null) {
-            JLabel empty = new JLabel("Keine Versionen gefunden.");
-            empty.setForeground(Color.LIGHT_GRAY);
-            card.add(empty, BorderLayout.CENTER);
-            return card;
-        }
-
-        String loaderName;
-        switch (file.modLoader) {
-            case 4 -> loaderName = "Fabric";
-            case 1 -> loaderName = "Forge";
-            case 6 -> loaderName = "NeoForge";
-            default -> loaderName = "Vanilla";
-        }
-
-        String versions = "unbekannt";
-        if (file.gameVersions != null && !file.gameVersions.isEmpty()) {
-            versions = String.join(", ", file.gameVersions);
-        }
-
-        JLabel title = new JLabel(file.fileName);
-        title.setForeground(Color.WHITE);
-        title.setFont(new Font("Arial", Font.BOLD, 14));
-
-        JLabel sub = new JLabel("Loader: " + loaderName + " • Minecraft: " + versions);
-        sub.setForeground(Color.LIGHT_GRAY);
-        sub.setFont(new Font("Arial", Font.PLAIN, 12));
-
-        JPanel text = new JPanel();
-        text.setLayout(new BoxLayout(text, BoxLayout.Y_AXIS));
-        text.setBackground(CARD);
-        text.add(title);
-        text.add(Box.createVerticalStrut(4));
-        text.add(sub);
-
-        card.add(text, BorderLayout.CENTER);
-
-        return card;
-    }
-
     static JPanel createInstallCard(ProfileInfo profile, java.util.List<FileInfo> files) {
 
         JPanel card = new JPanel(new BorderLayout());
@@ -763,7 +661,7 @@ public class CurseForgeBrowser {
             JButton install = new JButton("Install");
             install.setBackground(new Color(188, 19, 254));
             install.setForeground(Color.WHITE);
-            
+
             FileInfo finalBestMatch = bestMatch;
 
             install.addActionListener(e -> {
@@ -791,7 +689,7 @@ public class CurseForgeBrowser {
             notCompatible.setFont(new Font("Arial", Font.BOLD, 12));
             card.add(notCompatible, BorderLayout.EAST);
         }
-        
+
         return card;
     }
 
@@ -851,7 +749,7 @@ public class CurseForgeBrowser {
 
         Color Cliont = new Color(43, 43, 43);
 
-        JPanel card = new JPanel(new BorderLayout(10, 0));
+        JPanel card = new JPanel(new BorderLayout());
         card.setMaximumSize(new Dimension(Integer.MAX_VALUE, 120));
         card.setAlignmentX(Component.LEFT_ALIGNMENT);
         card.setBackground(CARD);
@@ -860,11 +758,9 @@ public class CurseForgeBrowser {
                 BorderFactory.createEmptyBorder(10, 10, 10, 10)
         ));
 
-        card.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
         card.addMouseListener(new MouseAdapter() {
             public void mouseEntered(MouseEvent e) { card.setBackground(HOVER); }
             public void mouseExited(MouseEvent e) { card.setBackground(CARD); }
-            public void mouseClicked(MouseEvent e) { openVersionPanel(modId); }
         });
 
         JLabel iconLabel = new JLabel();
@@ -879,8 +775,10 @@ public class CurseForgeBrowser {
         card.add(iconLabel, BorderLayout.WEST);
 
         JPanel textPanel = new JPanel();
-        textPanel.setBackground(CARD);
+        textPanel.setBackground(new Color(70, 70, 70)); // Hintergrundfarbe der Box
+        textPanel.setForeground(Color.WHITE);
         textPanel.setLayout(new BoxLayout(textPanel, BoxLayout.Y_AXIS));
+        textPanel.setBackground(CARD);
 
         JLabel nameLabel = new JLabel(name);
         nameLabel.setFont(new Font("Arial", Font.BOLD, 16));
@@ -892,21 +790,13 @@ public class CurseForgeBrowser {
         JLabel downloadLabel = new JLabel(NumberFormat.getInstance().format(downloads) + " downloads");
         downloadLabel.setForeground(Cliont);
 
-        JLabel hintLabel = new JLabel("Klick zum Anzeigen aller verfügbaren Versionen");
-        hintLabel.setForeground(Color.GRAY);
-        hintLabel.setFont(new Font("Arial", Font.ITALIC, 11));
-
         textPanel.add(nameLabel);
         textPanel.add(summaryLabel);
         textPanel.add(downloadLabel);
-        textPanel.add(Box.createVerticalStrut(4));
-        textPanel.add(hintLabel);
         card.add(textPanel, BorderLayout.CENTER);
 
         JButton installButton = new JButton("Install");
         installButton.setBackground(Cliont);
-        installButton.setForeground(Color.WHITE);
-        installButton.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
         installButton.addActionListener(e -> openInstallPanel(modId));
         card.add(installButton, BorderLayout.EAST);
 
