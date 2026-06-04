@@ -1,4 +1,5 @@
 import javax.net.ssl.*;
+import java.security.SecureRandom;
 import java.security.cert.X509Certificate;
 
 public class SSLFix {
@@ -8,20 +9,47 @@ public class SSLFix {
 
             TrustManager[] trustAllCerts = new TrustManager[]{
                     new X509TrustManager() {
-                        public X509Certificate[] getAcceptedIssuers() { return null; }
-                        public void checkClientTrusted(X509Certificate[] certs, String authType) {}
-                        public void checkServerTrusted(X509Certificate[] certs, String authType) {}
+
+                        @Override
+                        public X509Certificate[] getAcceptedIssuers() {
+                            return new X509Certificate[0];
+                        }
+
+                        @Override
+                        public void checkClientTrusted(
+                                X509Certificate[] certs,
+                                String authType
+                        ) {
+                            // Trust all clients
+                        }
+
+                        @Override
+                        public void checkServerTrusted(
+                                X509Certificate[] certs,
+                                String authType
+                        ) {
+                            // Trust all servers (DISABLES SSL VALIDATION)
+                        }
                     }
             };
 
             SSLContext sc = SSLContext.getInstance("TLS");
-            sc.init(null, trustAllCerts, new java.security.SecureRandom());
 
-            SSLContext.setDefault(sc);
+            sc.init(
+                    null,
+                    trustAllCerts,
+                    new SecureRandom()
+            );
 
-            HttpsURLConnection.setDefaultHostnameVerifier((hostname, session) -> true);
+            HttpsURLConnection.setDefaultSSLSocketFactory(
+                    sc.getSocketFactory()
+            );
 
-            System.out.println("SSL Fix applied");
+            HttpsURLConnection.setDefaultHostnameVerifier(
+                    (hostname, session) -> true
+            );
+
+            System.out.println("[SSLFix] SSL validation disabled (DEV MODE)");
 
         } catch (Exception e) {
             e.printStackTrace();

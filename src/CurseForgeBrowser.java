@@ -46,6 +46,7 @@ public class CurseForgeBrowser {
     private static final Color BG = new Color(32, 34, 37);
     private static final Color CARD = new Color(47, 49, 54);
     private static final Color HOVER = new Color(64, 68, 75);
+    private static final Color Cliont = new Color(188, 19, 254);
 
     public static JPanel create() throws IOException, FontFormatException {
 
@@ -363,7 +364,7 @@ public class CurseForgeBrowser {
 
                     if (!currentSearch.isEmpty()) {
                         url += "&searchFilter=" +
-                                URLEncoder.encode(currentSearch, StandardCharsets.UTF_8);
+                                URLEncoder.encode(currentSearch);
                     }
 
                     HttpRequest request = HttpRequest.newBuilder()
@@ -631,7 +632,7 @@ public class CurseForgeBrowser {
         name.setFont(new Font("Arial", Font.BOLD, 14));
 
         JLabel info = new JLabel(profile.version + " • " + profile.loader);
-        info.setForeground(Color.LIGHT_GRAY);
+        info.setForeground(Cliont);
         info.setFont(new Font("Arial", Font.PLAIN, 12));
 
         leftPanel.add(name);
@@ -746,8 +747,6 @@ public class CurseForgeBrowser {
     }
 
     private static JPanel createModCard(String name, String summary, String iconUrl, int modId, long downloads, List<FileInfo> files) {
-
-        Color Cliont = new Color(43, 43, 43);
 
         JPanel card = new JPanel(new BorderLayout());
         card.setMaximumSize(new Dimension(Integer.MAX_VALUE, 120));
