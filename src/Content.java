@@ -44,7 +44,7 @@ public class Content {
         }
     }
 
-    public static JPanel create() throws IOException, FontFormatException {
+    public static JPanel create(MinecraftAuth.LoginData loginData) throws IOException, FontFormatException {
         Color darkGrayBackground = new Color(43, 43, 43);
         Color Cliont = new Color(188, 19, 254);
         Color lightBorder = new Color(100, 100, 100); // Hellerer Strich
@@ -152,7 +152,7 @@ public class Content {
             try {
                 Main.setAppBusy(true);
                 MinecraftLauncher.setVersion(versionBox.getSelectedItem().toString());
-                Process process = MinecraftLauncher.launch();
+                Process process = MinecraftLauncher.launch(loginData);
 
                 new Thread(() -> {
                     try {

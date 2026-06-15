@@ -101,7 +101,7 @@ public class CurseForgeBrowser {
         filterPanel.setOpaque(false);
 
         JComboBox<String> loaderFilter = new JComboBox<>(new String[]{
-                "All", "Vanilla", "Fabric", "Forge", "NeoForge"
+                "All", "Vanilla", "Fabric"//, "Forge", "NeoForge"
         });
         loaderFilter.setPreferredSize(new Dimension(120, 28));
         loaderFilter.setBackground(new Color(70, 70, 70));

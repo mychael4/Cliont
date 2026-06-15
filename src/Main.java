@@ -16,6 +16,7 @@ import java.util.concurrent.CountDownLatch;
 
 public class Main {
 
+    public static MinecraftAuth.LoginData loginData;
     static final String CLIENT_ID = "4a121855-38a1-415a-95e5-54b27b294e92";
 
     static final String REDIRECT_URI =
@@ -36,6 +37,7 @@ public class Main {
 
     public static void main(String[] args)
             throws Exception {
+
 
         SSLFix.apply();
 
@@ -61,7 +63,7 @@ public class Main {
                         new JPanel(new CardLayout());
 
                 JPanel content =
-                        Content.create();
+                        Content.create(loginData);
 
                 JPanel version =
                         Version.create();

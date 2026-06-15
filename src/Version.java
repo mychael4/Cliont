@@ -80,7 +80,7 @@ public class Version {
             try {
                 Main.setAppBusy(true);
                 MinecraftLauncher.setVersion(profilePath.getFileName().toString());
-                Process process = MinecraftLauncher.launch();
+                Process process = MinecraftLauncher.launch(Main.loginData);
 
                 new Thread(() -> {
                     try {
@@ -361,7 +361,7 @@ public class Version {
             try {
                 Main.setAppBusy(true);
                 MinecraftLauncher.setVersion(profilePath.getFileName().toString());
-                Process process = MinecraftLauncher.launch();
+                Process process = MinecraftLauncher.launch(Main.loginData);
 
                 new Thread(() -> {
                     try {

@@ -16,7 +16,7 @@ public class MinecraftLauncher {
         version = v;
     }
 
-    public static Process launch() throws Exception {
+    public static Process launch(MinecraftAuth.LoginData loginData) throws Exception {
 
         if (version == null || version.isEmpty()) {
             throw new IllegalStateException("Version wurde nicht gesetzt. Nutze setVersion(v).");
@@ -123,7 +123,7 @@ public class MinecraftLauncher {
         command.add(mainClass);
 
         command.add("--username");
-        command.add("Player");
+        command.add(loginData.username);
         command.add("--version");
         command.add(version);
         command.add("--gameDir");
@@ -133,11 +133,20 @@ public class MinecraftLauncher {
         command.add("--assetIndex");
         command.add(assetIndex);
         command.add("--accessToken");
-        command.add("0");
+        command.add(loginData.minecraftAccessToken);
         command.add("--uuid");
-        command.add("0");
+        command.add(loginData.uuid);
         command.add("--userType");
-        command.add("legacy");
+        command.add("msa");
+
+        command.add("--versionType");
+        command.add("release");
+
+        command.add("--userProperties");
+        command.add("{}");
+
+        command.add("--xuid");
+        command.add("0");
 
         Process process = new ProcessBuilder(command)
                 .inheritIO()
