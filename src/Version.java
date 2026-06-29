@@ -4,6 +4,7 @@ import com.google.gson.stream.JsonReader;
 import javax.net.ssl.SSLContext;
 import javax.swing.*;
 import java.awt.*;
+import java.awt.image.BufferedImage;
 import java.io.*;
 import java.net.URL;
 import java.nio.file.*;
@@ -50,7 +51,8 @@ public class Version {
         // =========================
         // 🔥 HEADER (wie CurseForge)
         // =========================
-        JPanel header = new JPanel(new BorderLayout());
+        UIUtils.RoundedPanel header = new UIUtils.RoundedPanel(14, UIUtils.LIGHT_BORDER);
+        header.setLayout(new BorderLayout());
         header.setBackground(new Color(60, 60, 60));
         header.setBorder(BorderFactory.createEmptyBorder(10,10,10,10));
 
@@ -78,7 +80,7 @@ public class Version {
 
         start.addActionListener(e -> {
             try {
-                Main.setAppBusy(true);
+                //Main.setAppBusy(true);
                 MinecraftLauncher.setVersion(profilePath.getFileName().toString());
                 Process process = MinecraftLauncher.launch(Main.loginData);
 
@@ -87,11 +89,11 @@ public class Version {
                         process.waitFor();
                     } catch (InterruptedException ignored) {
                     } finally {
-                        Main.setAppBusy(false);
+                //        Main.setAppBusy(false);
                     }
                 }).start();
             } catch (Exception ex) {
-                Main.setAppBusy(false);
+                //Main.setAppBusy(false);
                 ex.printStackTrace();
             }
         });
@@ -104,7 +106,8 @@ public class Version {
         // =========================
         // 🔍 SEARCH BAR + BUTTON
         // =========================
-        JPanel topBar = new JPanel(new BorderLayout());
+        UIUtils.RoundedPanel topBar = new UIUtils.RoundedPanel(10, UIUtils.LIGHT_BORDER);
+        topBar.setLayout(new BorderLayout());
         topBar.setBackground(bg);
 
         JTextField search = new JTextField();
@@ -179,13 +182,11 @@ public class Version {
 
     static JPanel createModCard(Path modPath) {
 
-        JPanel card = new JPanel(new BorderLayout());
+        UIUtils.RoundedPanel card = new UIUtils.RoundedPanel(10, UIUtils.LIGHT_BORDER);
+        card.setLayout(new BorderLayout());
         card.setMaximumSize(new Dimension(Integer.MAX_VALUE, 50));
         card.setBackground(new Color(70, 70, 70));
-        card.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createMatteBorder(0, 0, 1, 0, new Color(90, 90, 90)),
-                BorderFactory.createEmptyBorder(8, 10, 8, 10)
-        ));
+        card.setBorder(BorderFactory.createEmptyBorder(8, 10, 8, 10));
 
         JLabel name = new JLabel(modPath.getFileName().toString());
         name.setForeground(Color.WHITE);
@@ -338,18 +339,47 @@ public class Version {
 
         Color Cliont = new Color(188, 19, 254);
 
-        JPanel card = new JPanel(new BorderLayout());
+        UIUtils.RoundedPanel card = new UIUtils.RoundedPanel(16, UIUtils.LIGHT_BORDER);
+        card.setLayout(new BorderLayout());
         card.setPreferredSize(new Dimension(180, 240));
-        card.setBackground(new Color(60, 60, 60));
-        card.setBorder(BorderFactory.createLineBorder(new Color(80, 80, 80)));
+        card.setBackground(UIUtils.CARD);
+        card.setBorder(BorderFactory.createEmptyBorder(8,8,8,8));
 
-        // 🔥 ICON LADEN
+        // 🔥 ICON LADEN & ABRUNDEN
         ImageIcon icon = new ImageIcon(
                 Version.class.getResource("/Icon.png")
         );
 
         Image scaled = icon.getImage().getScaledInstance(160, 160, Image.SCALE_SMOOTH);
-        JLabel iconLabel = new JLabel(new ImageIcon(scaled));
+        
+        // Abgerundetes Icon mit eigener Komponente
+        JLabel iconLabel = new JLabel(new ImageIcon(scaled)) {
+            @Override
+            protected void paintComponent(Graphics g) {
+                if (getIcon() != null) {
+                    Graphics2D g2 = (Graphics2D) g.create();
+                    g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                    
+                    ImageIcon imgIcon = (ImageIcon) getIcon();
+                    int width = imgIcon.getIconWidth();
+                    int height = imgIcon.getIconHeight();
+                    int radius = 16;
+                    
+                    BufferedImage buffImg = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB);
+                    Graphics2D g2d = buffImg.createGraphics();
+                    g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                    
+                    // Abgerundetes Rechteck
+                    g2d.setClip(new java.awt.geom.RoundRectangle2D.Float(0, 0, width, height, radius, radius));
+                    g2d.drawImage(imgIcon.getImage(), 0, 0, null);
+                    g2d.dispose();
+                    
+                    g2.drawImage(buffImg, 0, 0, this);
+                    g2.dispose();
+                }
+                super.paintComponent(g);
+            }
+        };
 
         JLabel name = new JLabel(profilePath.getFileName().toString(), SwingConstants.CENTER);
         name.setForeground(Color.WHITE);
@@ -359,7 +389,7 @@ public class Version {
 
         start.addActionListener(e -> {
             try {
-                Main.setAppBusy(true);
+                //Main.setAppBusy(true);
                 MinecraftLauncher.setVersion(profilePath.getFileName().toString());
                 Process process = MinecraftLauncher.launch(Main.loginData);
 
@@ -368,11 +398,11 @@ public class Version {
                         process.waitFor();
                     } catch (InterruptedException ignored) {
                     } finally {
-                        Main.setAppBusy(false);
+                //        Main.setAppBusy(false);
                     }
                 }).start();
             } catch (Exception ex) {
-                Main.setAppBusy(false);
+                //Main.setAppBusy(false);
                 ex.printStackTrace();
             }
         });
@@ -394,187 +424,280 @@ public class Version {
     // ================================
     // CREATE PROFILE PANEL
     // ================================
-    static JPanel createCreatePanel() throws IOException, FontFormatException {
+     static JPanel createCreatePanel() throws IOException, FontFormatException {
 
-        InputStream fontStream = Main.class.getResourceAsStream("/Minecraft.ttf");
-        Font mcFont = Font.createFont(Font.TRUETYPE_FONT, fontStream).deriveFont(24f);
+         InputStream fontStream = Main.class.getResourceAsStream("/Minecraft.ttf");
+         Font mcFont = Font.createFont(Font.TRUETYPE_FONT, fontStream).deriveFont(24f);
 
-        Color Cliont = new Color(188, 19, 254);
+         Color Cliont = new Color(188, 19, 254);
 
-        JPanel root = new JPanel(new BorderLayout());
-        root.setBackground(new Color(43, 43, 43));
+         JPanel root = new JPanel(new BorderLayout());
+         root.setBackground(UIUtils.BG);
 
-        // ===== TOP BAR =====
-        JPanel top = new JPanel(new BorderLayout());
-        top.setBackground(new Color(43, 43, 43));
+         // ===== TOP BAR =====
+         UIUtils.RoundedPanel top = new UIUtils.RoundedPanel(12, UIUtils.LIGHT_BORDER);
+         top.setLayout(new BorderLayout());
+         top.setBackground(UIUtils.BG);
+         top.setBorder(BorderFactory.createEmptyBorder(15, 20, 15, 20));
 
-        JLabel title = new JLabel("Create Profile");
-        title.setForeground(Cliont);
-        title.setFont(mcFont);
+         JLabel title = new JLabel("Create Profile");
+         title.setForeground(Cliont);
+         title.setFont(mcFont);
 
-        JButton close = new JButton("x");
-        close.setFont(mcFont);
-        close.setSize(10, 10);
+         JButton close = new JButton("✕") {
+             @Override
+             protected void paintComponent(Graphics g) {
+                 Graphics2D g2 = (Graphics2D) g.create();
+                 g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                 Color bg = getModel().isPressed() ? new Color(200, 50, 50) : new Color(150, 40, 40);
+                 g2.setColor(bg);
+                 g2.fillRoundRect(0, 0, getWidth(), getHeight(), 10, 10);
+                 g2.setColor(Color.WHITE);
+                 g2.setFont(getFont());
+                 FontMetrics fm = g2.getFontMetrics();
+                 int x = (getWidth() - fm.stringWidth(getText())) / 2;
+                 int y = (getHeight() + fm.getAscent()) / 2 - 4;
+                 g2.drawString(getText(), x, y);
+                 g2.dispose();
+             }
+         };
+         close.setContentAreaFilled(false);
+         close.setBorderPainted(false);
+         close.setFocusPainted(false);
+         close.setFont(mcFont.deriveFont(20f));
+         close.setPreferredSize(new Dimension(40, 40));
+         close.addActionListener(e -> layout.show(mainPanel, "profiles"));
 
-        close.addActionListener(e -> layout.show(mainPanel, "profiles"));
+         top.add(title, BorderLayout.WEST);
+         top.add(close, BorderLayout.EAST);
 
-        top.add(title, BorderLayout.WEST);
-        top.add(close, BorderLayout.EAST);
+         root.add(top, BorderLayout.NORTH);
 
-        root.add(top, BorderLayout.NORTH);
+         // ===== CENTER PANEL =====
+         UIUtils.RoundedPanel panel = new UIUtils.RoundedPanel(14, UIUtils.LIGHT_BORDER);
+         panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
+         panel.setBackground(new Color(50, 50, 50));
+         panel.setBorder(BorderFactory.createEmptyBorder(30, 40, 30, 40));
 
-        // ===== CENTER PANEL =====
-        JPanel panel = new JPanel();
-        panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
-        panel.setBackground(new Color(43, 43, 43));
+         panel.add(Box.createVerticalStrut(10));
 
-        panel.add(Box.createVerticalStrut(20));
+         // Profile Name
+         JLabel nameLabel = new JLabel("Profile Name");
+         nameLabel.setForeground(UIUtils.CLIONT);
+         nameLabel.setFont(mcFont.deriveFont(16f));
 
-        JLabel nameLabel = new JLabel("Profile Name");
-        nameLabel.setForeground(Color.WHITE);
+         JTextField nameField = new JTextField() {
+             @Override
+             protected void paintComponent(Graphics g) {
+                 Graphics2D g2 = (Graphics2D) g.create();
+                 g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                 g2.setColor(getBackground());
+                 g2.fillRoundRect(0, 0, getWidth(), getHeight(), 8, 8);
+                 g2.dispose();
+                 super.paintComponent(g);
+             }
+         };
+         nameField.setMaximumSize(new Dimension(300, 32));
+         nameField.setPreferredSize(new Dimension(300, 32));
+         nameField.setBackground(new Color(70, 70, 70));
+         nameField.setForeground(Color.WHITE);
+         nameField.setBorder(BorderFactory.createEmptyBorder(5, 10, 5, 10));
+         nameField.setFont(new Font("Arial", Font.PLAIN, 14));
 
-        JTextField nameField = new JTextField();
-        nameField.setMaximumSize(new Dimension(200, 25));
+         panel.add(nameLabel);
+         panel.add(Box.createVerticalStrut(8));
+         panel.add(nameField);
+         panel.add(Box.createVerticalStrut(20));
 
-        JLabel versionLabel = new JLabel("Minecraft Version");
-        versionLabel.setForeground(Color.WHITE);
+         // Minecraft Version
+         JLabel versionLabel = new JLabel("Minecraft Version");
+         versionLabel.setForeground(UIUtils.CLIONT);
+         versionLabel.setFont(mcFont.deriveFont(16f));
 
-        JComboBox<String> versionBox = new JComboBox<>();
-        versionBox.setMaximumSize(new Dimension(200, 25));
+         JComboBox<String> versionBox = new JComboBox<String>() {
+             @Override
+             protected void paintComponent(Graphics g) {
+                 Graphics2D g2 = (Graphics2D) g.create();
+                 g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                 g2.setColor(getBackground());
+                 g2.fillRoundRect(0, 0, getWidth(), getHeight(), 8, 8);
+                 g2.dispose();
+                 super.paintComponent(g);
+             }
+         };
+         versionBox.setMaximumSize(new Dimension(300, 32));
+         versionBox.setPreferredSize(new Dimension(300, 32));
+         versionBox.setBackground(new Color(70, 70, 70));
+         versionBox.setForeground(Color.WHITE);
+         versionBox.setFont(new Font("Arial", Font.PLAIN, 14));
 
-        JLabel loaderLabel = new JLabel("Loader");
-        loaderLabel.setForeground(Color.WHITE);
+         panel.add(versionLabel);
+         panel.add(Box.createVerticalStrut(8));
+         panel.add(versionBox);
+         panel.add(Box.createVerticalStrut(20));
 
-        JComboBox<String> loaderBox = new JComboBox<>();
-        loaderBox.setMaximumSize(new Dimension(200, 25));
+         // Loader
+         JLabel loaderLabel = new JLabel("Loader");
+         loaderLabel.setForeground(UIUtils.CLIONT);
+         loaderLabel.setFont(mcFont.deriveFont(16f));
 
-        loaderBox.addItem("Vanilla");
-        loaderBox.addItem("Fabric");
-        loaderBox.addItem("Forge");
-        loaderBox.addItem("NeoForge");
+         JComboBox<String> loaderBox = new JComboBox<String>() {
+             @Override
+             protected void paintComponent(Graphics g) {
+                 Graphics2D g2 = (Graphics2D) g.create();
+                 g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                 g2.setColor(getBackground());
+                 g2.fillRoundRect(0, 0, getWidth(), getHeight(), 8, 8);
+                 g2.dispose();
+                 super.paintComponent(g);
+             }
+         };
+         loaderBox.setMaximumSize(new Dimension(300, 32));
+         loaderBox.setPreferredSize(new Dimension(300, 32));
+         loaderBox.setBackground(new Color(70, 70, 70));
+         loaderBox.setForeground(Color.WHITE);
+         loaderBox.setFont(new Font("Arial", Font.PLAIN, 14));
 
-        JButton create = new JButton("Create");
-        create.setAlignmentX(Component.LEFT_ALIGNMENT);
-        create.setBackground(Cliont);
+         loaderBox.addItem("Vanilla");
+         loaderBox.addItem("Fabric");
+         loaderBox.addItem("Forge");
+         loaderBox.addItem("NeoForge");
 
-        panel.add(nameLabel);
-        panel.add(nameField);
+         panel.add(loaderLabel);
+         panel.add(Box.createVerticalStrut(8));
+         panel.add(loaderBox);
+         panel.add(Box.createVerticalStrut(30));
 
-        panel.add(Box.createVerticalStrut(10));
+         // Create Button
+         JButton create = new JButton("Create Profile") {
+             @Override
+             protected void paintComponent(Graphics g) {
+                 Graphics2D g2 = (Graphics2D) g.create();
+                 g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                 Color bg = getModel().isPressed() ? Cliont.darker() : Cliont;
+                 g2.setColor(bg);
+                 g2.fillRoundRect(0, 0, getWidth(), getHeight(), 12, 12);
+                 g2.setColor(Color.WHITE);
+                 g2.setFont(getFont());
+                 FontMetrics fm = g2.getFontMetrics();
+                 int x = (getWidth() - fm.stringWidth(getText())) / 2;
+                 int y = (getHeight() + fm.getAscent()) / 2 - 4;
+                 g2.drawString(getText(), x, y);
+                 g2.dispose();
+             }
+         };
+         create.setMaximumSize(new Dimension(300, 40));
+         create.setPreferredSize(new Dimension(300, 40));
+         create.setContentAreaFilled(false);
+         create.setBorderPainted(false);
+         create.setFocusPainted(false);
+         create.setFont(mcFont.deriveFont(14f));
+         create.setForeground(Color.WHITE);
 
-        panel.add(versionLabel);
-        panel.add(versionBox);
+         panel.add(create);
 
-        panel.add(Box.createVerticalStrut(10));
+         JScrollPane scrollPane = new JScrollPane(panel);
+         scrollPane.setBorder(null);
+         scrollPane.getViewport().setBackground(UIUtils.BG);
+         root.add(scrollPane, BorderLayout.CENTER);
 
-        panel.add(loaderLabel);
-        panel.add(loaderBox);
+         // ===== VERSIONEN LADEN =====
+         new Thread(() -> {
 
-        panel.add(Box.createVerticalStrut(20));
+             try {
 
-        panel.add(create);
+                 HttpClient client = HttpClient.newBuilder()
+                         .sslContext(SSLContext.getDefault())
+                         .build();
 
-        root.add(panel, BorderLayout.CENTER);
+                 HttpRequest request = HttpRequest.newBuilder()
+                         .uri(URI.create("https://piston-meta.mojang.com/mc/game/version_manifest_v2.json"))
+                         .build();
 
-        // ===== VERSIONEN LADEN =====
-        new Thread(() -> {
+                 HttpResponse<InputStream> response =
+                         client.send(request, HttpResponse.BodyHandlers.ofInputStream());
 
-            try {
+                 JsonObject manifest = JsonParser.parseReader(
+                                 new InputStreamReader(response.body()))
+                         .getAsJsonObject();
 
-                URL url = new URL("https://piston-meta.mojang.com/mc/game/version_manifest_v2.json");
+                 JsonArray versions = manifest.getAsJsonArray("versions");
 
-                HttpClient client = HttpClient.newBuilder()
-                        .sslContext(SSLContext.getDefault())
-                        .build();
+                 for (JsonElement v : versions) {
 
-                HttpRequest request = HttpRequest.newBuilder()
-                        .uri(URI.create("https://piston-meta.mojang.com/mc/game/version_manifest_v2.json"))
-                        .build();
+                     String id = v.getAsJsonObject().get("id").getAsString();
 
-                HttpResponse<InputStream> response =
-                        client.send(request, HttpResponse.BodyHandlers.ofInputStream());
+                     SwingUtilities.invokeLater(() -> versionBox.addItem(id));
+                 }
 
-                JsonObject manifest = JsonParser.parseReader(
-                                new InputStreamReader(response.body()))
-                        .getAsJsonObject();
+             } catch (Exception e) {
+                 e.printStackTrace();
+             }
 
-                JsonArray versions = manifest.getAsJsonArray("versions");
+         }).start();
 
-                for (JsonElement v : versions) {
+         // ===== CREATE BUTTON =====
+         create.addActionListener(e -> {
 
-                    String id = v.getAsJsonObject().get("id").getAsString();
+             String name = nameField.getText();
+             String version = (String) versionBox.getSelectedItem();
+             String loader = (String) loaderBox.getSelectedItem();
 
-                    SwingUtilities.invokeLater(() -> versionBox.addItem(id));
-                }
+             if (name.isEmpty()) return;
 
-            } catch (Exception e) {
-                e.printStackTrace();
-            }
+             // 🔥 Lange Operation in Background-Thread!
+             new Thread(() -> {
+                 try {
 
-        }).start();
+                     Path profileDir = Paths.get(System.getenv("APPDATA"),
+                             ".cliont", "profiles", name);
 
-        // ===== CREATE BUTTON =====
-        create.addActionListener(e -> {
+                     Files.createDirectories(profileDir);
 
-            String name = nameField.getText();
-            String version = (String) versionBox.getSelectedItem();
-            String loader = (String) loaderBox.getSelectedItem();
+                     JsonObject profileJson = new JsonObject();
+                     profileJson.addProperty("name", name);
+                     profileJson.addProperty("version", version);
+                     profileJson.addProperty("loader", loader);
 
-            if (name.isEmpty()) return;
+                     try (FileWriter writer = new FileWriter(profileDir.resolve("profile.json").toFile())) {
+                         new GsonBuilder().setPrettyPrinting().create().toJson(profileJson, writer);
+                     }
 
-            // 🔥 Lange Operation in Background-Thread!
-            new Thread(() -> {
-                try {
+                     //Aktuell nur Vanilla und Fabric
+                     if (loader.equals("Vanilla")) {
+                         downloadVanilla(version, profileDir);
+                         System.out.println("Downloading Vanilla");
+                     }
+                     else if (loader.equals("Fabric")) {
+                         downloadFabric(version, profileDir);
+                         System.out.println("Downloading Fabric");
+                     }
 
-                    Path profileDir = Paths.get(System.getenv("APPDATA"),
-                            ".cliont", "profiles", name);
+                     // 🔥 UI Update auf EDT!
+                     SwingUtilities.invokeLater(() -> {
+                         layout.show(mainPanel, "profiles");
+                         loadProfiles();
+                         JOptionPane.showMessageDialog(null,
+                                 "Profile '" + name + "' created successfully!",
+                                 "Success",
+                                 JOptionPane.INFORMATION_MESSAGE);
+                     });
 
-                    Files.createDirectories(profileDir);
+                 } catch (Exception ex) {
+                     ex.printStackTrace();
+                     SwingUtilities.invokeLater(() -> {
+                         JOptionPane.showMessageDialog(null,
+                                 "Error creating profile: " + ex.getMessage(),
+                                 "Error",
+                                 JOptionPane.ERROR_MESSAGE);
+                     });
+                 }
+             }).start();
 
-                    JsonObject profileJson = new JsonObject();
-                    profileJson.addProperty("name", name);
-                    profileJson.addProperty("version", version);
-                    profileJson.addProperty("loader", loader);
+         });
 
-                    try (FileWriter writer = new FileWriter(profileDir.resolve("profile.json").toFile())) {
-                        new GsonBuilder().setPrettyPrinting().create().toJson(profileJson, writer);
-                    }
-
-                    //Aktuell nur Vanilla und Fabric
-                    if (loader.equals("Vanilla")) {
-                        downloadVanilla(version, profileDir);
-                        System.out.println("Downloading Vanilla");
-                    }
-                    else if (loader.equals("Fabric")) {
-                        downloadFabric(version, profileDir);
-                        System.out.println("Downloading Fabric");
-                    }
-
-                    // 🔥 UI Update auf EDT!
-                    SwingUtilities.invokeLater(() -> {
-                        layout.show(mainPanel, "profiles");
-                        loadProfiles();
-                        JOptionPane.showMessageDialog(null,
-                                "Profile '" + name + "' created successfully!",
-                                "Success",
-                                JOptionPane.INFORMATION_MESSAGE);
-                    });
-
-                } catch (Exception ex) {
-                    ex.printStackTrace();
-                    SwingUtilities.invokeLater(() -> {
-                        JOptionPane.showMessageDialog(null,
-                                "Error creating profile: " + ex.getMessage(),
-                                "Error",
-                                JOptionPane.ERROR_MESSAGE);
-                    });
-                }
-            }).start();
-
-        });
-
-        return root;
-    }
+         return root;
+     }
 
     // ================================
     // DOWNLOAD LIBRARIES

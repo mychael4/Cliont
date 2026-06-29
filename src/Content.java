@@ -150,7 +150,7 @@ public class Content {
 
         startButton.addActionListener(e -> {
             try {
-                Main.setAppBusy(true);
+                //Main.setAppBusy(true);
                 MinecraftLauncher.setVersion(versionBox.getSelectedItem().toString());
                 Process process = MinecraftLauncher.launch(loginData);
 
@@ -159,11 +159,11 @@ public class Content {
                         process.waitFor();
                     } catch (InterruptedException ignored) {
                     } finally {
-                        Main.setAppBusy(false);
+                //        Main.setAppBusy(false);
                     }
                 }).start();
             } catch (Exception ex) {
-                Main.setAppBusy(false);
+                //Main.setAppBusy(false);
                 ex.printStackTrace();
             }
         });

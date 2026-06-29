@@ -214,7 +214,7 @@ public class Main {
 
                         try {
 
-                            setAppBusy(true);
+                            //setAppBusy(true);
 
                             if (refreshToken != null) {
 
@@ -237,7 +237,7 @@ public class Main {
 
                         } finally {
 
-                            setAppBusy(false);
+                            //setAppBusy(false);
 
                         }
 
@@ -712,18 +712,23 @@ public class Main {
                 "application/json"
         );
 
-        connection.getOutputStream()
-                .write(
-                        json.getBytes(
-                                StandardCharsets.UTF_8
-                        )
-                );
+        connection.getOutputStream().write(
+                json.getBytes(StandardCharsets.UTF_8)
+        );
+
+        int code = connection.getResponseCode();
+
+        InputStream stream;
+
+        if (code >= 400) {
+            stream = connection.getErrorStream();
+        } else {
+            stream = connection.getInputStream();
+        }
 
         BufferedReader reader =
                 new BufferedReader(
-                        new InputStreamReader(
-                                connection.getInputStream()
-                        )
+                        new InputStreamReader(stream)
                 );
 
         StringBuilder response =
@@ -732,13 +737,13 @@ public class Main {
         String line;
 
         while ((line = reader.readLine()) != null) {
-
             response.append(line);
-
         }
 
-        return response.toString();
+        System.out.println("HTTP " + code);
+        System.out.println(response);
 
+        return response.toString();
     }
 
     static void saveAccount(
@@ -860,21 +865,21 @@ public class Main {
 
     }
 
-    public static void setAppBusy(boolean busy) {
+    //public static void setAppBusy(boolean busy) {
 
-        if (mainFrame == null) {
-            return;
-        }
+    //    if (mainFrame == null) {
+    //        return;
+    //    }
 
-        mainFrame.getGlassPane()
-                .setVisible(busy);
+    //    mainFrame.getGlassPane()
+    //            .setVisible(busy);
 
-        setComponentEnabled(
-                mainFrame.getContentPane(),
-                !busy
-        );
+    //    setComponentEnabled(
+    //            mainFrame.getContentPane(),
+    //            !busy
+    //    );
 
-    }
+    //}
 
     private static void setComponentEnabled(
             Component component,
@@ -906,25 +911,31 @@ public class Main {
             Dimension size
     ) {
 
-        JButton button =
-                new JButton(text);
+        JButton button = new JButton(text) {
+            @Override
+            protected void paintComponent(Graphics g) {
+                Graphics2D g2 = (Graphics2D) g.create();
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                Color bgColor = getModel().isPressed() ? bg.darker() : (getModel().isRollover() ? bg.brighter() : bg);
+                g2.setColor(bgColor);
+                g2.fillRoundRect(0, 0, getWidth(), getHeight(), 12, 12);
+                g2.setColor(getForeground());
+                g2.setFont(getFont());
+                FontMetrics fm = g2.getFontMetrics();
+                int x = (getWidth() - fm.stringWidth(getText())) / 2;
+                int y = (getHeight() + fm.getAscent()) / 2 - 4;
+                g2.drawString(getText(), x, y);
+                g2.dispose();
+            }
+        };
 
-        button.setFont(
-                font.deriveFont(18f)
-        );
-
+        button.setFont(font.deriveFont(18f));
         button.setMaximumSize(size);
-
         button.setPreferredSize(size);
-
-        button.setAlignmentX(
-                Component.CENTER_ALIGNMENT
-        );
-
+        button.setAlignmentX(Component.CENTER_ALIGNMENT);
         button.setFocusPainted(false);
-
         button.setBorderPainted(false);
-
+        button.setContentAreaFilled(false);
         button.setBackground(bg);
 
         button.setForeground(Color.WHITE);
