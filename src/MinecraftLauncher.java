@@ -111,6 +111,20 @@ public class MinecraftLauncher {
 
         String classpath = String.join(File.pathSeparator, classpathEntries);
 
+        if (loginData == null) {
+            throw new IllegalArgumentException("LoginData darf nicht null sein.");
+        }
+
+        String username = (loginData.username != null && !loginData.username.isBlank())
+                ? loginData.username
+                : "Player";
+        String uuid = (loginData.uuid != null && !loginData.uuid.isBlank())
+                ? loginData.uuid
+                : "00000000-0000-0000-0000-000000000000";
+        String accessToken = (loginData.minecraftAccessToken != null && !loginData.minecraftAccessToken.isBlank())
+                ? loginData.minecraftAccessToken
+                : "0";
+
         // ===== Java Command =====
         List<String> command = new ArrayList<>();
 
@@ -123,7 +137,7 @@ public class MinecraftLauncher {
         command.add(mainClass);
 
         command.add("--username");
-        command.add(loginData.username);
+        command.add(username);
         command.add("--version");
         command.add(version);
         command.add("--gameDir");
@@ -133,9 +147,9 @@ public class MinecraftLauncher {
         command.add("--assetIndex");
         command.add(assetIndex);
         command.add("--accessToken");
-        command.add(loginData.minecraftAccessToken);
+        command.add(accessToken);
         command.add("--uuid");
-        command.add(loginData.uuid);
+        command.add(uuid);
         command.add("--userType");
         command.add("msa");
 

@@ -590,6 +590,15 @@ public class Main {
                 profileJson.get("id")
                         .getAsString();
 
+        MinecraftAuth.LoginData data =
+                new MinecraftAuth.LoginData();
+
+        data.username = username;
+        data.uuid = uuid;
+        data.minecraftAccessToken = minecraftToken;
+
+        loginData = data;
+
         saveAccount(
                 username,
                 uuid,
