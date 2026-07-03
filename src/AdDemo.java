@@ -7,6 +7,10 @@ import javafx.scene.web.WebView;
 import javafx.stage.Stage;
 
 public class AdDemo extends Application {
+    static void main(String[] args) {
+        launch(args);
+    }
+
     @Override
     public void start(Stage primaryStage) {
         // 1. WebView für die AdsJumbo-Anzeige erstellen
@@ -36,9 +40,5 @@ public class AdDemo extends Application {
         primaryStage.setTitle("Java App mit AdsJumbo Integration");
         primaryStage.setScene(scene);
         primaryStage.show();
-    }
-
-    public static void main(String[] args) {
-        launch(args);
     }
 }
