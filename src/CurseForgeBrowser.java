@@ -40,6 +40,7 @@ public class CurseForgeBrowser {
     private static String currentSearch = "";
     private static String currentVersionFilter = "All Versions";
     private static String currentLoaderFilter = "All";
+    private static int currentContentType = 6; // 6 = Mods, 4471 = Modpacks, etc.
 
     private static Timer searchTimer;
 
@@ -48,42 +49,91 @@ public class CurseForgeBrowser {
     private static final Color HOVER = new Color(64, 68, 75);
     private static final Color Cliont = new Color(188, 19, 254);
 
+
     public static JPanel create() throws IOException, FontFormatException {
 
         Color Cliont = new Color(188, 19, 254);
 
         JPanel mainPanel = new JPanel(new BorderLayout());
-        mainPanel.setBackground(new Color(43, 43, 43));
+        mainPanel.setBackground(UIUtils.BG);
         mainPanel.setBorder(null);
 
-        // ---------- SEARCH BAR ----------
-        JPanel topPanel = new JPanel(new BorderLayout());
+        // ---------- TOP PANEL WITH TABS & SEARCH ----------
+        UIUtils.RoundedPanel topPanel = new UIUtils.RoundedPanel(12, UIUtils.LIGHT_BORDER);
+        topPanel.setLayout(new BoxLayout(topPanel, BoxLayout.Y_AXIS));
         topPanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
         topPanel.setBackground(new Color(60, 60, 60));
 
-        searchField = new JTextField(){
+        // --- CONTENT TYPE TABS ---
+        JPanel tabsPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 5));
+        tabsPanel.setOpaque(false);
+
+        String[] contentTypes = {"Mods", "Modpacks", "Texture Packs", "Resource Packs"};
+        int[] contentTypeIds = {6, 4471, 12, 12}; // 6=Mods, 4471=Modpacks, 12=Texture/Resource Packs
+        java.util.List<JButton> tabButtons = new java.util.ArrayList<>();
+
+        for (int i = 0; i < contentTypes.length; i++) {
+            final int idx = i;
+            JButton tab = new JButton(contentTypes[i]) {
+                @Override
+                protected void paintComponent(Graphics g) {
+                    Graphics2D g2 = (Graphics2D) g.create();
+                    g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                    Color bg = currentContentType == contentTypeIds[idx] ? Cliont : new Color(80, 80, 80);
+                    g2.setColor(bg);
+                    g2.fillRoundRect(0, 0, getWidth(), getHeight(), 8, 8);
+                    g2.setColor(Color.WHITE);
+                    g2.setFont(getFont());
+                    FontMetrics fm = g2.getFontMetrics();
+                    int x = (getWidth() - fm.stringWidth(getText())) / 2;
+                    int y = (getHeight() + fm.getAscent()) / 2 - 4;
+                    g2.drawString(getText(), x, y);
+                    g2.dispose();
+                }
+            };
+            tab.setContentAreaFilled(false);
+            tab.setBorderPainted(false);
+            tab.setFocusPainted(false);
+            tab.setFont(new Font("Arial", Font.PLAIN, 12));
+            tab.setPreferredSize(new Dimension(100, 28));
+
+            final int contentTypeId = contentTypeIds[i];
+            tab.addActionListener(e -> {
+                currentContentType = contentTypeId;
+                currentIndex = 0;
+                contentPanel.removeAll();
+                loadMods();
+                tabButtons.forEach(b -> b.repaint());
+            });
+
+            tabButtons.add(tab);
+            tabsPanel.add(tab);
+        }
+
+        topPanel.add(tabsPanel);
+        topPanel.add(Box.createVerticalStrut(8));
+
+        // --- SEARCH BAR WITH VISIBLE CURSOR ---
+        JPanel searchPanel = new JPanel(new BorderLayout());
+        searchPanel.setOpaque(false);
+
+        searchField = new JTextField() {
             @Override
             protected void paintComponent(Graphics g) {
                 Graphics2D g2 = (Graphics2D) g.create();
                 g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
                 g2.setColor(getBackground());
-                g2.fillRoundRect(0, 0, getWidth(), getHeight(), 15, 15);
-                g2.setColor(Color.WHITE);
-                FontMetrics fm = g2.getFontMetrics();
-                int x = (getWidth() - fm.stringWidth(getText())) / 2;
-                int y = (getHeight() + fm.getAscent()) / 2 - 4;
-                g2.setFont(getFont());
-                g2.drawString(getText(), x, y);
+                g2.fillRoundRect(0, 0, getWidth(), getHeight(), 10, 10);
                 g2.dispose();
+                super.paintComponent(g);
             }
         };
         searchField.setBorder(BorderFactory.createEmptyBorder(0, 10, 0, 10));
-        searchField.setFont(new Font("Arial", Font.PLAIN, 16));
-        searchField.setPreferredSize(new Dimension(200, 35));
-        searchField.setBackground(new Color(70, 70, 70)); // Hintergrundfarbe der Box
+        searchField.setFont(new Font("Arial", Font.PLAIN, 14));
+        searchField.setPreferredSize(new Dimension(250, 35));
+        searchField.setBackground(new Color(70, 70, 70));
         searchField.setForeground(Color.WHITE);
-
-
+        searchField.setCaretColor(Cliont); // Sichtbarer Cursor in Cliont-Farbe!
 
         searchField.getDocument().addDocumentListener(new DocumentListener() {
             private void restartTimer() {
@@ -97,20 +147,43 @@ public class CurseForgeBrowser {
             public void changedUpdate(DocumentEvent e) { restartTimer(); }
         });
 
+        // --- FILTER DROPDOWNS ---
         JPanel filterPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 10, 5));
         filterPanel.setOpaque(false);
 
-        JComboBox<String> loaderFilter = new JComboBox<>(new String[]{
-                "All", "Vanilla", "Fabric"//, "Forge", "NeoForge"
-        });
-        loaderFilter.setPreferredSize(new Dimension(120, 28));
+        JComboBox<String> loaderFilter = new JComboBox<String>(new String[]{
+                "All", "Vanilla", "Fabric"
+        }) {
+            @Override
+            protected void paintComponent(Graphics g) {
+                Graphics2D g2 = (Graphics2D) g.create();
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                g2.setColor(getBackground());
+                g2.fillRoundRect(0, 0, getWidth(), getHeight(), 8, 8);
+                g2.dispose();
+                super.paintComponent(g);
+            }
+        };
+        loaderFilter.setPreferredSize(new Dimension(110, 32));
         loaderFilter.setBackground(new Color(70, 70, 70));
         loaderFilter.setForeground(Color.WHITE);
+        loaderFilter.setFont(new Font("Arial", Font.PLAIN, 12));
 
-        JComboBox<String> versionFilter = new JComboBox<>();
-        versionFilter.setPreferredSize(new Dimension(140, 28));
+        JComboBox<String> versionFilter = new JComboBox<String>() {
+            @Override
+            protected void paintComponent(Graphics g) {
+                Graphics2D g2 = (Graphics2D) g.create();
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                g2.setColor(getBackground());
+                g2.fillRoundRect(0, 0, getWidth(), getHeight(), 8, 8);
+                g2.dispose();
+                super.paintComponent(g);
+            }
+        };
+        versionFilter.setPreferredSize(new Dimension(130, 32));
         versionFilter.setBackground(new Color(70, 70, 70));
         versionFilter.setForeground(Color.WHITE);
+        versionFilter.setFont(new Font("Arial", Font.PLAIN, 12));
         versionFilter.addItem("All Versions");
 
         java.util.Set<String> versions = new java.util.TreeSet<>();
@@ -136,8 +209,10 @@ public class CurseForgeBrowser {
         filterPanel.add(new JLabel("Loader:"));
         filterPanel.add(loaderFilter);
 
-        topPanel.add(searchField, BorderLayout.CENTER);
-        topPanel.add(filterPanel, BorderLayout.SOUTH);
+        searchPanel.add(searchField, BorderLayout.CENTER);
+        searchPanel.add(filterPanel, BorderLayout.EAST);
+
+        topPanel.add(searchPanel);
         mainPanel.add(topPanel, BorderLayout.NORTH);
 
         // ---------- MOD LIST ----------
@@ -150,7 +225,7 @@ public class CurseForgeBrowser {
 
         contentPanel = new JPanel();
         contentPanel.setLayout(new BoxLayout(contentPanel, BoxLayout.Y_AXIS));
-        contentPanel.setBackground(new Color(43, 43, 43));
+        contentPanel.setBackground(UIUtils.BG);
         contentPanel.setBorder(null);
 
         statusLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
@@ -159,18 +234,10 @@ public class CurseForgeBrowser {
 
         JScrollPane scrollPane = new JScrollPane(contentPanel);
         scrollPane.setBorder(null);
-        scrollPane.getViewport().setBackground(new Color(43, 43, 43));
+        scrollPane.getViewport().setBackground(UIUtils.BG);
         scrollPane.getVerticalScrollBar().setUnitIncrement(16);
         mainPanel.add(scrollPane, BorderLayout.CENTER);
 
-
-        // ---------- LOAD MORE ----------
-        //JButton loadMore = new JButton("Load More");
-        //loadMore.addActionListener(e -> {
-        //    currentIndex += pageSize;
-        //    loadMods();
-        //});
-        //mainPanel.add(loadMore, BorderLayout.SOUTH);
         loadMods();
 
         return mainPanel;
@@ -353,19 +420,20 @@ public class CurseForgeBrowser {
                     contentPanel.repaint();
                 });
 
-                while (hasMore) {
+                 while (hasMore) {
 
-                    String url = "https://api.curseforge.com/v1/mods/search"
-                            + "?gameId=" + GAME_ID
-                            + "&sortField=2"
-                            + "&sortOrder=desc"
-                            + "&pageSize=" + pageSize
-                            + "&index=" + index;
+                     String url = "https://api.curseforge.com/v1/mods/search"
+                             + "?gameId=" + GAME_ID
+                             + "&classId=" + currentContentType
+                             + "&sortField=2"
+                             + "&sortOrder=desc"
+                             + "&pageSize=" + pageSize
+                             + "&index=" + index;
 
-                    if (!currentSearch.isEmpty()) {
-                        url += "&searchFilter=" +
-                                URLEncoder.encode(currentSearch);
-                    }
+                     if (!currentSearch.isEmpty()) {
+                         url += "&searchFilter=" +
+                                 URLEncoder.encode(currentSearch);
+                     }
 
                     HttpRequest request = HttpRequest.newBuilder()
                             .uri(URI.create(url))
@@ -617,10 +685,11 @@ public class CurseForgeBrowser {
 
     static JPanel createInstallCard(ProfileInfo profile, java.util.List<FileInfo> files) {
 
-        JPanel card = new JPanel(new BorderLayout());
+        UIUtils.RoundedPanel card = new UIUtils.RoundedPanel(12, UIUtils.LIGHT_BORDER);
+        card.setLayout(new BorderLayout());
         card.setMaximumSize(new Dimension(Integer.MAX_VALUE, 80));
-        card.setBackground(CARD);
-        card.setBorder(BorderFactory.createEmptyBorder(5, 10, 5, 10));
+        card.setBackground(UIUtils.CARD);
+        card.setBorder(BorderFactory.createEmptyBorder(8, 10, 8, 10));
 
         // 🔥 LEFT: Profil-Infos
         JPanel leftPanel = new JPanel();
@@ -659,9 +728,26 @@ public class CurseForgeBrowser {
             compatible.setForeground(new Color(100, 255, 100));
             compatible.setFont(new Font("Arial", Font.BOLD, 12));
 
-            JButton install = new JButton("Install");
-            install.setBackground(new Color(188, 19, 254));
+            JButton install = new JButton("Install") {
+                @Override
+                protected void paintComponent(Graphics g) {
+                    Graphics2D g2 = (Graphics2D) g.create();
+                    g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                    Color bg = UIUtils.CLIONT;
+                    g2.setColor(getModel().isPressed() ? bg.darker() : bg);
+                    g2.fillRoundRect(0, 0, getWidth(), getHeight(), 10, 10);
+                    g2.setColor(getForeground());
+                    g2.setFont(getFont());
+                    FontMetrics fm = g2.getFontMetrics();
+                    int x = (getWidth() - fm.stringWidth(getText())) / 2;
+                    int y = (getHeight() + fm.getAscent()) / 2 - 4;
+                    g2.drawString(getText(), x, y);
+                    g2.dispose();
+                }
+            };
             install.setForeground(Color.WHITE);
+            install.setContentAreaFilled(false);
+            install.setBorderPainted(false);
 
             FileInfo finalBestMatch = bestMatch;
 
