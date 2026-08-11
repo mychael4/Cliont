@@ -1,0 +1,5 @@
+Mods count: 1
+ 
+              jar name               | notes | mod id | mod name |       mod version        | mixin configs | modrinth hash | curseforge hash
+-------------------------------------+-------+--------+----------+--------------------------+---------------+---------------+----------------
+fabric-loader-0.19.3.jar (modloader) |       | fabric | fabric   | fabric-loader-0.19.3.jar |               |               |                
