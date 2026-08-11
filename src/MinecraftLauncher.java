@@ -326,10 +326,10 @@ public class MinecraftLauncher {
             // Loader und spezifische Abhängigkeiten ans Ende
             boolean k1IsLoader = k1.contains("fabric-loader") || k1.contains("neoforge") || k1.contains("forge");
             boolean k2IsLoader = k2.contains("fabric-loader") || k2.contains("neoforge") || k2.contains("forge");
-            
+
             if (k1IsLoader && !k2IsLoader) return 1;
             if (!k1IsLoader && k2IsLoader) return -1;
-            
+
             return k1.compareTo(k2);
         });
 

@@ -1,45 +1,118 @@
+import com.google.gson.GsonBuilder;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
+import com.sun.net.httpserver.HttpServer;
 import javafx.application.Platform;
 import javafx.embed.swing.JFXPanel;
 import javafx.scene.Scene;
 import javafx.scene.web.WebView;
 
-import com.google.gson.*;
-
-import com.sun.net.httpserver.HttpServer;
-
 import javax.swing.*;
 import java.awt.*;
 import java.io.*;
 import java.net.*;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.concurrent.CountDownLatch;
 
 public class Main {
 
-    public static MinecraftAuth.LoginData loginData;
     static final String CLIENT_ID = "4a121855-38a1-415a-95e5-54b27b294e92";
-
     static final String REDIRECT_URI =
             "http://localhost:8247";
-
     static final String SCOPE =
             "XboxLive.signin offline_access";
-
+    public static MinecraftAuth.LoginData loginData;
     static JFrame frame;
 
     static JFrame mainFrame;
 
     static JButton loginButton;
 
+    static Version.ProfilePanel profilePanel;
+
     static String refreshToken;
 
     static String minecraftToken;
 
-    public static void main(String[] args)
+    public static Color cliont = new Color(188, 19, 254);
+
+    private static final String UPDATE_CHECK_URL = "http://192.168.1.72:25565/version.json";
+// ^ adjust this path to whatever the real API endpoint is - the #/updates
+//   route is client-side (SPA), so it won't return version data over plain HTTP.
+
+    private static String CURRENT_LAUNCHER_VERSION = "0.0.0"; // fallback if file missing
+
+    private static String loadCurrentVersion() {
+        try (InputStream in = Main.class.getResourceAsStream("/version.json")) {
+            if (in == null) {
+                System.err.println("version.json not found in resources, using fallback version.");
+                return CURRENT_LAUNCHER_VERSION;
+            }
+            String content = new String(in.readAllBytes(), StandardCharsets.UTF_8);
+            JsonObject json = JsonParser.parseString(content).getAsJsonObject();
+            return json.get("version").getAsString();
+        } catch (Exception ex) {
+            ex.printStackTrace();
+            return CURRENT_LAUNCHER_VERSION;
+        }
+    }
+
+    private static void checkForUpdateAsync(String currentVersion, JButton button) {
+        new Thread(() -> {
+            try {
+                String latestVersion = fetchLatestVersion();
+                boolean updateAvailable = isNewerVersion(latestVersion, currentVersion);
+
+                SwingUtilities.invokeLater(() -> button.setVisible(updateAvailable));
+            } catch (Exception ex) {
+                ex.printStackTrace();
+                // Fail silently (keep button hidden) rather than showing on error
+            }
+        }, "update-check").start();
+    }
+
+    private static String fetchLatestVersion() throws IOException, InterruptedException {
+        HttpClient client = HttpClient.newHttpClient();
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create(UPDATE_CHECK_URL))
+                .timeout(Duration.ofSeconds(5))
+                .GET()
+                .build();
+
+        HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+
+        // Adjust this to match whatever shape the real endpoint returns.
+        // Assuming JSON like: {"latestVersion": "1.4.2"}
+        JsonObject json = JsonParser.parseString(response.body()).getAsJsonObject();
+        return json.get("latestVersion").getAsString();
+    }
+
+    private static boolean isNewerVersion(String latest, String current) {
+        String[] latestParts = latest.split("\\.");
+        String[] currentParts = current.split("\\.");
+        int length = Math.max(latestParts.length, currentParts.length);
+
+        for (int i = 0; i < length; i++) {
+            int l = i < latestParts.length ? Integer.parseInt(latestParts[i]) : 0;
+            int c = i < currentParts.length ? Integer.parseInt(currentParts[i]) : 0;
+            if (l != c) {
+                return l > c;
+            }
+        }
+        return false;
+    }
+
+    static void main(String[] args)
             throws Exception {
 
 
         SSLFix.apply();
+
+        CURRENT_LAUNCHER_VERSION = loadCurrentVersion();
 
         loadSavedAccount();
 
@@ -50,6 +123,7 @@ public class Main {
                 frame = new JFrame("Cliont");
 
                 frame.setSize(900, 500);
+                frame.setIconImage(Toolkit.getDefaultToolkit().getImage(Main.class.getResource("/Icon-rounded.png")));
 
                 frame.setDefaultCloseOperation(
                         JFrame.EXIT_ON_CLOSE
@@ -63,7 +137,7 @@ public class Main {
                         new JPanel(new CardLayout());
 
                 JPanel content =
-                        Content.create(loginData);
+                        Content.create();
 
                 JPanel version =
                         Version.create();
@@ -71,14 +145,14 @@ public class Main {
                 JPanel mods =
                         Mods.create();
 
-                Color cliont =
-                        new Color(188, 19, 254);
+                JPanel settings =
+                        Settings.create();
 
                 Color sideBarColor =
-                        new Color(34,34,34);
+                        UIUtils.SIDEBAR;
 
                 Color buttonColor =
-                        new Color(89,89,89);
+                        UIUtils.BUTTON;
 
                 InputStream fontStream =
                         Main.class.getResourceAsStream(
@@ -94,7 +168,7 @@ public class Main {
                 JPanel sidebar = new JPanel();
 
                 sidebar.setPreferredSize(
-                        new Dimension(200,0)
+                        new Dimension(200, 0)
                 );
 
                 sidebar.setBackground(sideBarColor);
@@ -130,24 +204,36 @@ public class Main {
                                 "Home",
                                 mcFont,
                                 buttonColor,
-                                new Dimension(200,30)
+                                new Dimension(200, 30)
                         );
+                homebutton.setAlignmentX(Component.CENTER_ALIGNMENT);
 
                 JButton modsbutton =
                         createSidebarButton(
                                 "Mods",
                                 mcFont,
                                 buttonColor,
-                                new Dimension(200,30)
+                                new Dimension(200, 30)
                         );
+                modsbutton.setAlignmentX(Component.CENTER_ALIGNMENT);
 
                 JButton versionsbutton =
                         createSidebarButton(
                                 "Profiles",
                                 mcFont,
                                 buttonColor,
-                                new Dimension(200,30)
+                                new Dimension(200, 30)
                         );
+                versionsbutton.setAlignmentX(Component.CENTER_ALIGNMENT);
+
+                JButton settingsButton =
+                        createSidebarButton(
+                                "Settings",
+                                mcFont,
+                                buttonColor,
+                                new Dimension(200, 30)
+                        );
+                settingsButton.setAlignmentX(Component.CENTER_ALIGNMENT);
 
                 homebutton.addActionListener(e -> {
 
@@ -156,6 +242,8 @@ public class Main {
                     version.setVisible(false);
 
                     mods.setVisible(false);
+
+                    settings.setVisible(false);
 
                 });
 
@@ -167,6 +255,8 @@ public class Main {
 
                     mods.setVisible(true);
 
+                    settings.setVisible(false);
+
                 });
 
                 versionsbutton.addActionListener(e -> {
@@ -177,75 +267,128 @@ public class Main {
 
                     mods.setVisible(false);
 
+                    settings.setVisible(false);
+
                 });
 
-                sidebar.add(homebutton);
+                settingsButton.addActionListener(e -> {
 
-                sidebar.add(Box.createVerticalStrut(10));
+                    content.setVisible(false);
 
-                sidebar.add(modsbutton);
+                    version.setVisible(false);
 
-                sidebar.add(Box.createVerticalStrut(10));
+                    mods.setVisible(false);
 
-                sidebar.add(versionsbutton);
+                    settings.setVisible(true);
 
-                JPanel accountbar =
+                });
+
+                JPanel FunctionButtonsPanel = new JPanel();
+                FunctionButtonsPanel.setBackground(null);
+                FunctionButtonsPanel.setLayout(new BoxLayout(FunctionButtonsPanel, BoxLayout.Y_AXIS));
+
+                FunctionButtonsPanel.add(homebutton);
+
+                FunctionButtonsPanel.add(Box.createVerticalStrut(10));
+
+                FunctionButtonsPanel.add(modsbutton);
+
+                FunctionButtonsPanel.add(Box.createVerticalStrut(10));
+
+                FunctionButtonsPanel.add(versionsbutton);
+
+                sidebar.add(FunctionButtonsPanel);
+
+                sidebar.add(Box.createVerticalGlue()); // NEW: absorbs all leftover space, pushing everything after it to the bottom
+
+                sidebar.add(settingsButton);
+
+                sidebar.add(Box.createVerticalStrut(20)); // Optional: gap at the very bottom
+
+                JPanel rightSideBar =
                         new JPanel();
 
-                accountbar.setPreferredSize(
-                        new Dimension(150,0)
+                rightSideBar.setPreferredSize(
+                        new Dimension(150, 0)
                 );
 
-                accountbar.setBackground(
+                rightSideBar.setBackground(
                         sideBarColor
                 );
 
-                loginButton =
-                        createSidebarButton(
-                                "Login",
-                                mcFont,
-                                buttonColor,
-                                new Dimension(120,40)
-                        );
+                // Wenn bereits eingeloggt, zeige Version.ProfilePanel, sonst zeige Login Button
+                if (loginData != null) {
+                    profilePanel = new Version.ProfilePanel(
+                            loginData.username,
+                            loginData.uuid,
+                            () -> logout()
+                    );
+                    rightSideBar.add(profilePanel);
+                } else {
+                    loginButton =
+                            createSidebarButton(
+                                    "Login",
+                                    mcFont,
+                                    buttonColor,
+                                    new Dimension(120, 40)
+                            );
 
-                loginButton.addActionListener(e -> {
+                    loginButton.addActionListener(e -> {
 
-                    new Thread(() -> {
+                        new Thread(() -> {
 
-                        try {
+                            try {
 
-                            //setAppBusy(true);
+                                //setAppBusy(true);
 
-                            if (refreshToken != null) {
+                                if (refreshToken != null) {
 
-                                loginWithRefreshToken();
+                                    loginWithRefreshToken();
 
-                            } else {
+                                } else {
 
-                                login();
+                                    login();
+
+                                }
+
+                            } catch (Exception ex) {
+
+                                ex.printStackTrace();
+
+                                JOptionPane.showMessageDialog(
+                                        frame,
+                                        ex.getMessage()
+                                );
 
                             }
 
+                        }).start();
+
+                    });
+
+                    JButton updateAvailableButton = createSidebarButton(
+                            "Update Available",
+                            mcFont,
+                            cliont,
+                            new Dimension(120, 40)
+                    );
+                    updateAvailableButton.setFont(mcFont.deriveFont(14f));
+                    updateAvailableButton.setForeground(Color.WHITE); // sits on the purple accent, stays white in every theme
+                    updateAvailableButton.putClientProperty("cliont.themeExempt", true);
+                    updateAvailableButton.addActionListener(e -> {
+                        try {
+                            Desktop.getDesktop().browse(new URI("http://192.168.1.72:25565/#/updates"));
                         } catch (Exception ex) {
-
                             ex.printStackTrace();
-
-                            JOptionPane.showMessageDialog(
-                                    frame,
-                                    ex.getMessage()
-                            );
-
-                        } finally {
-
-                            //setAppBusy(false);
-
                         }
+                    });
 
-                    }).start();
+                    updateAvailableButton.setVisible(false);
+                    checkForUpdateAsync(CURRENT_LAUNCHER_VERSION, updateAvailableButton);
 
-                });
-
-                accountbar.add(loginButton);
+                    rightSideBar.add(loginButton, BorderLayout.NORTH);
+                    rightSideBar.add(updateAvailableButton, BorderLayout.SOUTH); // was capitalized wrong before
+                }
 
                 centerPanel.add(content);
 
@@ -253,13 +396,15 @@ public class Main {
 
                 centerPanel.add(mods);
 
+                centerPanel.add(settings);
+
                 frame.add(
                         sidebar,
                         BorderLayout.WEST
                 );
 
                 frame.add(
-                        accountbar,
+                        rightSideBar,
                         BorderLayout.EAST
                 );
 
@@ -301,6 +446,7 @@ public class Main {
         });
 
     }
+
 
     static void login() throws Exception {
 
@@ -466,19 +612,17 @@ public class Main {
                 "https://user.auth.xboxlive.com/user/authenticate",
 
                 """
-                {
-                  "Properties": {
-                    "AuthMethod": "RPS",
-                    "SiteName": "user.auth.xboxlive.com",
-                    "RpsTicket": "d=%s"
-                  },
-                  "RelyingParty": "http://auth.xboxlive.com",
-                  "TokenType": "JWT"
-                }
-                """.formatted(microsoftToken)
+                        {
+                          "Properties": {
+                            "AuthMethod": "RPS",
+                            "SiteName": "user.auth.xboxlive.com",
+                            "RpsTicket": "d=%s"
+                          },
+                          "RelyingParty": "http://auth.xboxlive.com",
+                          "TokenType": "JWT"
+                        }
+                        """.formatted(microsoftToken)
         );
-        System.out.println("XBOX RESPONSE:");
-        System.out.println(xboxResponse);
 
         JsonObject xboxJson =
                 JsonParser.parseString(
@@ -502,18 +646,16 @@ public class Main {
                 "https://xsts.auth.xboxlive.com/xsts/authorize",
 
                 """
-                {
-                  "Properties": {
-                    "SandboxId": "RETAIL",
-                    "UserTokens": ["%s"]
-                  },
-                  "RelyingParty": "rp://api.minecraftservices.com/",
-                  "TokenType": "JWT"
-                }
-                """.formatted(xboxToken)
+                        {
+                          "Properties": {
+                            "SandboxId": "RETAIL",
+                            "UserTokens": ["%s"]
+                          },
+                          "RelyingParty": "rp://api.minecraftservices.com/",
+                          "TokenType": "JWT"
+                        }
+                        """.formatted(xboxToken)
         );
-        System.out.println("xsets RESPONSE:");
-        System.out.println(xstsResponse);
 
         JsonObject xstsJson =
                 JsonParser.parseString(
@@ -529,13 +671,11 @@ public class Main {
                 "https://api.minecraftservices.com/authentication/login_with_xbox",
 
                 """
-                {
-                  "identityToken": "XBL3.0 x=%s;%s"
-                }
-                """.formatted(uhs, xstsToken)
+                        {
+                          "identityToken": "XBL3.0 x=%s;%s"
+                        }
+                        """.formatted(uhs, xstsToken)
         );
-        System.out.println("MC LOGIN RESPONSE:");
-        System.out.println(mcLoginResponse);
 
         JsonObject mcLoginJson =
                 JsonParser.parseString(
@@ -607,7 +747,21 @@ public class Main {
 
         SwingUtilities.invokeLater(() -> {
 
-            loginButton.setText(username);
+            // Ersetze Login Button mit Version.ProfilePanel
+            if (loginButton != null) {
+                JPanel rightSideBar = (JPanel) loginButton.getParent();
+                rightSideBar.remove(loginButton);
+                profilePanel = new Version.ProfilePanel(
+                        username,
+                        uuid,
+                        () -> logout()
+                );
+                rightSideBar.add(profilePanel);
+                rightSideBar.revalidate();
+                rightSideBar.repaint();
+            } else if (profilePanel != null) {
+                profilePanel.updateProfile(username, uuid);
+            }
 
         });
 
@@ -618,7 +772,7 @@ public class Main {
         JFrame loginFrame =
                 new JFrame("Microsoft Login");
 
-        loginFrame.setSize(500,700);
+        loginFrame.setSize(500, 700);
 
         loginFrame.setLocationRelativeTo(null);
 
@@ -762,7 +916,7 @@ public class Main {
             dir.mkdirs();
 
             File file =
-                    new File(dir,"account.json");
+                    new File(dir, "account.json");
 
             JsonObject json =
                     new JsonObject();
@@ -846,7 +1000,7 @@ public class Main {
         glassPanel.setOpaque(true);
 
         glassPanel.setBackground(
-                new Color(0,0,0,120)
+                new Color(0, 0, 0, 120)
         );
 
         glassPanel.addMouseListener(
@@ -904,6 +1058,70 @@ public class Main {
 
     }
 
+    private static void logout() {
+        loginData = null;
+        refreshToken = null;
+        minecraftToken = null;
+
+        try {
+            File file = new File(
+                    System.getProperty("user.home") + "/.cliont/account.json"
+            );
+            if (file.exists()) {
+                file.delete();
+            }
+        } catch (Exception ex) {
+            ex.printStackTrace();
+        }
+
+        SwingUtilities.invokeLater(() -> {
+            if (profilePanel != null && profilePanel.getParent() != null) {
+                JPanel rightSideBar = (JPanel) profilePanel.getParent();
+                rightSideBar.remove(profilePanel);
+                profilePanel = null;
+
+                InputStream fontStream = Main.class.getResourceAsStream("/Minecraft.ttf");
+                Font mcFont = null;
+                try {
+                    mcFont = Font.createFont(Font.TRUETYPE_FONT, fontStream);
+                } catch (Exception ex) {
+                    ex.printStackTrace();
+                    mcFont = new Font("Arial", Font.PLAIN, 18);
+                }
+
+                Color buttonColor = UIUtils.BUTTON;
+                loginButton = createSidebarButton(
+                        "Login",
+                        mcFont,
+                        buttonColor,
+                        new Dimension(120, 40)
+                );
+
+                loginButton.addActionListener(e -> {
+                    new Thread(() -> {
+                        try {
+                            if (refreshToken != null) {
+                                loginWithRefreshToken();
+                            } else {
+                                login();
+                            }
+                        } catch (Exception ex) {
+                            ex.printStackTrace();
+                            JOptionPane.showMessageDialog(
+                                    frame,
+                                    ex.getMessage()
+                            );
+                        }
+                    }).start();
+                });
+
+                rightSideBar.add(loginButton);
+                rightSideBar.revalidate();
+                rightSideBar.repaint();
+            }
+        });
+    }
+
     private static JButton createSidebarButton(
             String text,
             Font font,
@@ -916,7 +1134,8 @@ public class Main {
             protected void paintComponent(Graphics g) {
                 Graphics2D g2 = (Graphics2D) g.create();
                 g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                Color bgColor = getModel().isPressed() ? bg.darker() : (getModel().isRollover() ? bg.brighter() : bg);
+                Color base = getBackground();
+                Color bgColor = getModel().isPressed() ? base.darker() : (getModel().isRollover() ? base.brighter() : base);
                 g2.setColor(bgColor);
                 g2.fillRoundRect(0, 0, getWidth(), getHeight(), 12, 12);
                 g2.setColor(getForeground());
@@ -938,10 +1157,9 @@ public class Main {
         button.setContentAreaFilled(false);
         button.setBackground(bg);
 
-        button.setForeground(Color.WHITE);
+        button.setForeground(UIUtils.TEXT);
 
         return button;
 
     }
-
 }

@@ -1,21 +1,17 @@
-import com.google.gson.*;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 
 import java.awt.*;
-import java.io.*;
+import java.io.BufferedReader;
+import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.URI;
 import java.net.URL;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
-import java.util.UUID;
 
 public class MinecraftAuth {
-
-    public static class LoginData {
-        public String username;
-        public String uuid;
-        public String minecraftAccessToken;
-    }
 
     public static LoginData loginWithMicrosoft(String clientId, String redirectUri) throws Exception {
 
@@ -54,16 +50,16 @@ public class MinecraftAuth {
         String xboxResponse = postJson(
                 "https://user.auth.xboxlive.com/user/authenticate",
                 """
-                {
-                  "Properties": {
-                    "AuthMethod": "RPS",
-                    "SiteName": "user.auth.xboxlive.com",
-                    "RpsTicket": "d=%s"
-                  },
-                  "RelyingParty": "http://auth.xboxlive.com",
-                  "TokenType": "JWT"
-                }
-                """.formatted(microsoftAccessToken)
+                        {
+                          "Properties": {
+                            "AuthMethod": "RPS",
+                            "SiteName": "user.auth.xboxlive.com",
+                            "RpsTicket": "d=%s"
+                          },
+                          "RelyingParty": "http://auth.xboxlive.com",
+                          "TokenType": "JWT"
+                        }
+                        """.formatted(microsoftAccessToken)
         );
         System.out.println("XBOX RESPONSE:");
         System.out.println(xboxResponse);
@@ -83,15 +79,15 @@ public class MinecraftAuth {
         String xstsResponse = postJson(
                 "https://xsts.auth.xboxlive.com/xsts/authorize",
                 """
-                {
-                  "Properties": {
-                    "SandboxId": "RETAIL",
-                    "UserTokens": ["%s"]
-                  },
-                  "RelyingParty": "rp://api.minecraftservices.com/",
-                  "TokenType": "JWT"
-                }
-                """.formatted(xboxToken)
+                        {
+                          "Properties": {
+                            "SandboxId": "RETAIL",
+                            "UserTokens": ["%s"]
+                          },
+                          "RelyingParty": "rp://api.minecraftservices.com/",
+                          "TokenType": "JWT"
+                        }
+                        """.formatted(xboxToken)
         );
         System.out.println("xsets RESPONSE:");
         System.out.println(xstsResponse);
@@ -103,10 +99,10 @@ public class MinecraftAuth {
         String mcLoginResponse = postJson(
                 "https://api.minecraftservices.com/authentication/login_with_xbox",
                 """
-                {
-                  "identityToken": "XBL3.0 x=%s;%s"
-                }
-                """.formatted(uhs, xstsToken)
+                        {
+                          "identityToken": "XBL3.0 x=%s;%s"
+                        }
+                        """.formatted(uhs, xstsToken)
         );
         System.out.println("MC LOGIN RESPONSE:");
         System.out.println(mcLoginResponse);
@@ -211,5 +207,11 @@ public class MinecraftAuth {
         }
 
         return response.toString();
+    }
+
+    public static class LoginData {
+        public String username;
+        public String uuid;
+        public String minecraftAccessToken;
     }
 }

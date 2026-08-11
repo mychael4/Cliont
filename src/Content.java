@@ -1,3 +1,4 @@
+import javax.swing.*;
 import java.awt.*;
 import java.io.IOException;
 import java.io.InputStream;
@@ -5,49 +6,19 @@ import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import javax.swing.*;
 
 
 // ... (Importe bleiben gleich)
 
 public class Content {
 
-    // Hilfsklasse für abgerundete Panels mit optionalem Rand
-    static class RoundedPanel extends JPanel {
-        private int radius;
-        private Color borderColor;
+    // Statische Variable zum Speichern der versionBox für späteren Zugriff
+    private static JComboBox<String> versionBox;
+    private static final Color Cliont = Main.cliont;
 
-        public RoundedPanel(int radius, Color borderColor) {
-            this.radius = radius;
-            this.borderColor = borderColor;
-            setOpaque(false);
-        }
-
-        @Override
-        protected void paintComponent(Graphics g) {
-            Graphics2D g2 = (Graphics2D) g.create();
-            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-
-            // Hintergrund zeichnen
-            g2.setColor(getBackground());
-            g2.fillRoundRect(0, 0, getWidth(), getHeight(), radius, radius);
-
-            // Hellen Strich/Rahmen zeichnen
-            if (borderColor != null) {
-                g2.setColor(borderColor);
-                g2.setStroke(new BasicStroke(2)); // Dicke des Strichs
-                g2.drawRoundRect(1, 1, getWidth() - 3, getHeight() - 3, radius, radius);
-            }
-
-            g2.dispose();
-            super.paintComponent(g);
-        }
-    }
-
-    public static JPanel create(MinecraftAuth.LoginData loginData) throws IOException, FontFormatException {
-        Color darkGrayBackground = new Color(43, 43, 43);
-        Color Cliont = new Color(188, 19, 254);
-        Color lightBorder = new Color(100, 100, 100); // Hellerer Strich
+    public static JPanel create() throws IOException, FontFormatException {
+        Color darkGrayBackground = UIUtils.BG;
+        Color lightBorder = UIUtils.LIGHT_BORDER; // Hellerer Strich
 
         InputStream fontStream = Content.class.getResourceAsStream("/Minecraft.ttf");
         Font mcFont = Font.createFont(Font.TRUETYPE_FONT, fontStream).deriveFont(24f);
@@ -60,7 +31,7 @@ public class Content {
         // ===== Top Panel: Startbereich (Radius 30, mit Rand) =====
         RoundedPanel startPanel = new RoundedPanel(30, lightBorder);
         startPanel.setLayout(new BoxLayout(startPanel, BoxLayout.Y_AXIS));
-        startPanel.setBackground(new Color(60, 60, 60));
+        startPanel.setBackground(UIUtils.CARD);
         startPanel.setBorder(BorderFactory.createEmptyBorder(40, 60, 40, 60));
 
         DefaultComboBoxModel<String> model = new DefaultComboBoxModel<>();
@@ -80,11 +51,12 @@ public class Content {
         }
 
         JComboBox<String> versionBox = new JComboBox<>(model);
+        Content.versionBox = versionBox; // Speichere für späteren Zugriff
         versionBox.setMaximumSize(new Dimension(250, 35));
         versionBox.setPreferredSize(new Dimension(250, 35));
         versionBox.setAlignmentX(Component.CENTER_ALIGNMENT);
-        versionBox.setBackground(new Color(70, 70, 70)); // Hintergrundfarbe der Box
-        versionBox.setForeground(Color.WHITE);
+        versionBox.setBackground(UIUtils.INPUT); // Hintergrundfarbe der Box
+        versionBox.setForeground(UIUtils.TEXT);
         versionBox.setFont(mcFont.deriveFont(16f));
 
 // --- Pfeil entfernen und Ecken abrunden ---
@@ -118,6 +90,20 @@ public class Content {
 
         startPanel.add(Box.createVerticalStrut(40));
 
+        JLabel loginLabel = new JLabel("Please log in to start the game.");
+        loginLabel.setForeground(UIUtils.TEXT_MUTED);
+        loginLabel.setFont(mcFont.deriveFont(16f));
+        loginLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
+        startPanel.add(loginLabel);
+
+        Timer loginCheckTimer = new Timer(500, e -> {
+            loginLabel.setVisible(Main.loginData == null);
+            startPanel.revalidate();
+            startPanel.repaint();
+        });
+
+        loginCheckTimer.start();
+
         // Play Button (bleibt rund wie zuvor)
         JButton startButton = new JButton("Play") {
             @Override
@@ -128,7 +114,7 @@ public class Content {
                 Color bgColor = getModel().isPressed() ? Color.DARK_GRAY : getBackground();
                 g2.setColor(bgColor);
                 g2.fillRoundRect(0, 0, getWidth(), getHeight(), 15, 15);
-                g2.setColor(Color.WHITE);
+                g2.setColor(UIUtils.TEXT);
                 FontMetrics fm = g2.getFontMetrics();
                 int x = (getWidth() - fm.stringWidth(getText())) / 2;
                 int y = (getHeight() + fm.getAscent()) / 2 - 4;
@@ -147,28 +133,46 @@ public class Content {
         startButton.setMaximumSize(buttonSize);
         startButton.setPreferredSize(buttonSize); // Wichtig, damit Swing die Größe erzwingt
         startButton.setMinimumSize(buttonSize);
+        startButton.setEnabled(true);
 
         startButton.addActionListener(e -> {
             try {
                 //Main.setAppBusy(true);
+                startButton.setEnabled(false);
                 MinecraftLauncher.setVersion(versionBox.getSelectedItem().toString());
-                Process process = MinecraftLauncher.launch(loginData);
+                System.out.println(Main.loginData);
+                Process process = MinecraftLauncher.launch(Main.loginData);
 
                 new Thread(() -> {
                     try {
                         process.waitFor();
                     } catch (InterruptedException ignored) {
                     } finally {
-                //        Main.setAppBusy(false);
+                        //        Main.setAppBusy(false);
+                        startButton.setEnabled(true);
                     }
                 }).start();
             } catch (Exception ex) {
                 //Main.setAppBusy(false);
+                startButton.setEnabled(true);
                 ex.printStackTrace();
             }
         });
 
         startPanel.add(startButton);
+
+        Timer loginButtonCheckTimer = new Timer(500, e -> {
+            if (Main.loginData == null) {
+                startButton.setEnabled(false);
+                startButton.setBackground(UIUtils.BUTTON); // Deaktivierte Farbe
+            } else {
+                startButton.setEnabled(true);
+                startButton.setBackground(Cliont); // Zurück zu standard Farbe
+            }
+        });
+
+        loginButtonCheckTimer.start();
+
 
         // ===== Mitte: Abstandshalter (Glue) =====
         // Dies drückt das News-Panel nach ganz unten
@@ -179,17 +183,17 @@ public class Content {
         // ===== Bottom Panel: News (Radius 20, mit Rand) =====
         RoundedPanel newsPanel = new RoundedPanel(20, lightBorder);
         newsPanel.setLayout(new BoxLayout(newsPanel, BoxLayout.Y_AXIS));
-        newsPanel.setBackground(new Color(55, 55, 55));
+        newsPanel.setBackground(UIUtils.CARD);
         newsPanel.setBorder(BorderFactory.createEmptyBorder(15, 20, 15, 20));
         newsPanel.setMaximumSize(new Dimension(Integer.MAX_VALUE, 120)); // Feste Höhe unten
 
         JLabel newsTitle = new JLabel("NEWS");
         newsTitle.setFont(mcFont.deriveFont(18f));
-        newsTitle.setForeground(Color.WHITE);
+        newsTitle.setForeground(UIUtils.TEXT);
         newsTitle.setAlignmentX(Component.CENTER_ALIGNMENT);
 
         JLabel emptyNews = new JLabel("Keine News verfügbar");
-        emptyNews.setForeground(Color.LIGHT_GRAY);
+        emptyNews.setForeground(UIUtils.TEXT_MUTED);
         emptyNews.setFont(mcFont.deriveFont(16f));
         emptyNews.setAlignmentX(Component.CENTER_ALIGNMENT);
 
@@ -210,5 +214,83 @@ public class Content {
         wrapper.setBackground(darkGrayBackground);
 
         return wrapper;
+    }
+
+    /**
+     * Aktualisiert die Profil-Dropdown-Liste mit den neuesten Profilen aus dem Verzeichnis
+     */
+    public static void refreshProfileList() {
+        if (versionBox == null) {
+            return; // Dropdown-Liste wurde noch nicht initialisiert
+        }
+
+        SwingUtilities.invokeLater(() -> {
+            try {
+                DefaultComboBoxModel<String> model = (DefaultComboBoxModel<String>) versionBox.getModel();
+                model.removeAllElements();
+
+                Path versionsDir = Paths.get(System.getProperty("user.home"), "AppData", "Roaming", ".cliont", "profiles");
+
+                if (Files.exists(versionsDir) && Files.isDirectory(versionsDir)) {
+                    try (DirectoryStream<Path> stream = Files.newDirectoryStream(versionsDir)) {
+                        for (Path path : stream) {
+                            if (Files.isDirectory(path)) {
+                                model.addElement(path.getFileName().toString());
+                            }
+                        }
+                    }
+                } else {
+                    model.addElement("No versions found");
+                }
+
+                // Wähle das erste Element aus, falls vorhanden
+                if (model.getSize() > 0) {
+                    versionBox.setSelectedIndex(0);
+                }
+            } catch (IOException e) {
+                System.err.println("Fehler beim Aktualisieren der Profil-Liste: " + e.getMessage());
+            }
+        });
+    }
+
+    // Hilfsklasse für abgerundete Panels mit optionalem Rand
+    static class RoundedPanel extends JPanel {
+        private final int radius;
+        private Color borderColor;
+
+        public RoundedPanel(int radius, Color borderColor) {
+            this.radius = radius;
+            this.borderColor = borderColor;
+            setOpaque(false);
+        }
+
+        public Color getBorderColor() {
+            return borderColor;
+        }
+
+        public void setBorderColor(Color borderColor) {
+            this.borderColor = borderColor;
+            repaint();
+        }
+
+        @Override
+        protected void paintComponent(Graphics g) {
+            Graphics2D g2 = (Graphics2D) g.create();
+            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+
+            // Hintergrund zeichnen
+            g2.setColor(getBackground());
+            g2.fillRoundRect(0, 0, getWidth(), getHeight(), radius, radius);
+
+            // Hellen Strich/Rahmen zeichnen
+            if (borderColor != null) {
+                g2.setColor(borderColor);
+                g2.setStroke(new BasicStroke(2)); // Dicke des Strichs
+                g2.drawRoundRect(1, 1, getWidth() - 3, getHeight() - 3, radius, radius);
+            }
+
+            g2.dispose();
+            super.paintComponent(g);
+        }
     }
 }
