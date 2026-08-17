@@ -2,10 +2,6 @@ import com.google.gson.GsonBuilder;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.sun.net.httpserver.HttpServer;
-import javafx.application.Platform;
-import javafx.embed.swing.JFXPanel;
-import javafx.scene.Scene;
-import javafx.scene.web.WebView;
 
 import javax.swing.*;
 import java.awt.*;
@@ -768,34 +764,21 @@ public class Main {
     }
 
     static void openLoginWindow(String url) {
+        try {
+            // Versuche, den Standard-Browser zu öffnen. Fallback auf cmd start unter Windows.
+            if (Desktop.isDesktopSupported() && Desktop.getDesktop().isSupported(Desktop.Action.BROWSE)) {
+                Desktop.getDesktop().browse(new URI(url));
+            } else {
+                Runtime.getRuntime().exec(new String[]{"cmd", "/c", "start", url});
+            }
 
-        JFrame loginFrame =
-                new JFrame("Microsoft Login");
-
-        loginFrame.setSize(500, 700);
-
-        loginFrame.setLocationRelativeTo(null);
-
-        JFXPanel fxPanel =
-                new JFXPanel();
-
-        loginFrame.add(fxPanel);
-
-        loginFrame.setVisible(true);
-
-        Platform.runLater(() -> {
-
-            WebView webView =
-                    new WebView();
-
-            webView.getEngine().load(url);
-
-            fxPanel.setScene(
-                    new Scene(webView)
-            );
-
-        });
-
+            SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(frame,
+                    "Der Standardbrowser wurde zum Login geöffnet. Schließe das Browserfenster nach erfolgreichem Login."));
+        } catch (Exception ex) {
+            ex.printStackTrace();
+            SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(frame,
+                    "Fehler beim Öffnen des Browsers: " + ex.getMessage()));
+        }
     }
 
     static String post(
