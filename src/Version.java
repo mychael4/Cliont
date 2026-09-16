@@ -18,7 +18,14 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.file.*;
+import java.util.AbstractMap;
+import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 
@@ -86,21 +93,17 @@ public class Version {
         JButton start = new JButton("Start");
         start.setSize(50, 20);
         Timer loginButtonCheckTimer = new Timer(500, e -> {
-            if (Main.loginData == null) {
-                start.setBackground(UIUtils.BUTTON);
-                start.setEnabled(false);
-            } else {
-                start.setBackground(Cliont);
-                start.setEnabled(true);
-            }
+            String profileName = profilePath.getFileName().toString();
+            Main.configureProfileButtonState(start, profileName, false);
         });
         loginButtonCheckTimer.start();
 
         start.addActionListener(e -> {
             try {
-                //Main.setAppBusy(true);
-                MinecraftLauncher.setVersion(profilePath.getFileName().toString());
+                String profileName = profilePath.getFileName().toString();
+                MinecraftLauncher.setVersion(profileName);
                 Process process = MinecraftLauncher.launch(Main.loginData);
+                Main.setRunningProfile(profileName, process);
 
                 new Thread(() -> {
                     try {
@@ -109,7 +112,6 @@ public class Version {
                     }
                 }).start();
             } catch (Exception ex) {
-                //Main.setAppBusy(false);
                 ex.printStackTrace();
             }
         });
@@ -130,7 +132,28 @@ public class Version {
         JButton addMod = new JButton("+");
 
         topBar.add(search, BorderLayout.CENTER);
-        topBar.add(addMod, BorderLayout.EAST);
+        JPanel rightButtons = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 0));
+        rightButtons.setOpaque(false);
+        rightButtons.add(addMod);
+        JButton installEmoteBtn = new JButton("Install Emote");
+        installEmoteBtn.addActionListener(evt -> {
+            JFileChooser fc = new JFileChooser();
+            int res = fc.showOpenDialog(null);
+            if (res != JFileChooser.APPROVE_OPTION) return;
+            File jar = fc.getSelectedFile();
+            String[] options = {"vanilla","fabric","forge","neoforge"};
+            String loader = (String) JOptionPane.showInputDialog(null, "Select loader:", "Install Emote", JOptionPane.QUESTION_MESSAGE, null, options, options[0]);
+            if (loader == null) return;
+            try {
+                EmoteInstaller.installEmote(jar.toPath(), profilePath, loader, "");
+                JOptionPane.showMessageDialog(null, "Emote installed. If this profile is open in Minecraft, restart it to apply the change.");
+            } catch (Exception ex) {
+                ex.printStackTrace();
+                JOptionPane.showMessageDialog(null, "Failed to install emote: " + ex.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
+            }
+        });
+        rightButtons.add(installEmoteBtn);
+        topBar.add(rightButtons, BorderLayout.EAST);
 
         root.add(topBar, BorderLayout.SOUTH);
 
@@ -143,6 +166,7 @@ public class Version {
         modsPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
 
         JScrollPane scroll = new JScrollPane(modsPanel);
+        UIUtils.styleScrollPane(scroll);
         root.add(scroll, BorderLayout.CENTER);
 
         // =========================
@@ -465,7 +489,7 @@ public class Version {
         wrapper.add(profileGrid, BorderLayout.NORTH);
 
         JScrollPane scroll = new JScrollPane(wrapper);
-        scroll.setBorder(null);
+        UIUtils.styleScrollPane(scroll);
 
         root.add(scroll, BorderLayout.CENTER);
 
@@ -556,12 +580,20 @@ public class Version {
 
         JButton start = new JButton("Start");
         start.setBackground(Cliont);
+        Main.configureProfileButtonState(start, profilePath.getFileName().toString(), false);
+
+        Timer profileStateTimer = new Timer(400, e -> Main.configureProfileButtonState(start, profilePath.getFileName().toString(), false));
+        profileStateTimer.start();
 
         start.addActionListener(e -> {
             try {
-                //Main.setAppBusy(true);
-                MinecraftLauncher.setVersion(profilePath.getFileName().toString());
+                String profileName = profilePath.getFileName().toString();
+                if (Main.isProfileRunning(profileName)) {
+                    return;
+                }
+                MinecraftLauncher.setVersion(profileName);
                 Process process = MinecraftLauncher.launch(Main.loginData);
+                Main.setRunningProfile(profileName, process);
 
                 new Thread(() -> {
                     try {
@@ -570,7 +602,6 @@ public class Version {
                     }
                 }).start();
             } catch (Exception ex) {
-                //Main.setAppBusy(false);
                 ex.printStackTrace();
             }
         });
@@ -843,7 +874,7 @@ public class Version {
         title.setForeground(Cliont);
         title.setFont(mcFont);
 
-        JButton close = new JButton("✕") {
+        JButton close = new JButton("x") {
             @Override
             protected void paintComponent(Graphics g) {
                 Graphics2D g2 = (Graphics2D) g.create();
@@ -996,7 +1027,7 @@ public class Version {
         panel.add(create);
 
         JScrollPane scrollPane = new JScrollPane(panel);
-        scrollPane.setBorder(null);
+        UIUtils.styleScrollPane(scrollPane);
         scrollPane.getViewport().setBackground(UIUtils.BG);
         root.add(scrollPane, BorderLayout.CENTER);
 
@@ -1038,6 +1069,14 @@ public class Version {
         // ===== CREATE BUTTON =====
         create.addActionListener(e -> {
 
+            try {
+                createCreatePanel().setVisible(false);
+            } catch (IOException ex) {
+                throw new RuntimeException(ex);
+            } catch (FontFormatException ex) {
+                throw new RuntimeException(ex);
+            }
+
             String name = nameField.getText();
             String version = (String) versionBox.getSelectedItem();
             String loader = (String) loaderBox.getSelectedItem();
@@ -1062,8 +1101,9 @@ public class Version {
                         new GsonBuilder().setPrettyPrinting().create().toJson(profileJson, writer);
                     }
 
-                    // Show installation progress window
-                    InstallationProgressWindow progressWindow = new InstallationProgressWindow(name);
+                    final AtomicReference<InstallationProgressWindow> progressRef = new AtomicReference<>();
+                    SwingUtilities.invokeAndWait(() -> progressRef.set(new InstallationProgressWindow(name)));
+                    InstallationProgressWindow progressWindow = progressRef.get();
                     progressWindow.showWindow();
 
                     //Aktuell nur Vanilla und Fabric
@@ -1079,11 +1119,14 @@ public class Version {
                     progressWindow.complete();
 
                     // Show completion window
-                    CompletionWindow completionWindow = new CompletionWindow(name);
+                    final AtomicReference<CompletionWindow> completionRef = new AtomicReference<>();
+                    SwingUtilities.invokeAndWait(() -> completionRef.set(new CompletionWindow(name)));
+                    CompletionWindow completionWindow = completionRef.get();
                     completionWindow.showWindow();
 
-                    // Aktualisiere die Profil-Dropdown-Liste
+                    // Aktualisiere die Profil-Dropdown-Liste und wähle das neue Profil direkt aus
                     Content.refreshProfileList();
+                    Content.selectProfile(name);
 
                     // 🔥 UI Update auf EDT!
                     SwingUtilities.invokeLater(() -> {
@@ -1134,155 +1177,126 @@ public class Version {
             osKey = "linux";
         }
 
-        int count = 0;
         int total = libs.size();
+        AtomicInteger completed = new AtomicInteger();
+        ExecutorService executor = Executors.newFixedThreadPool(Math.min(8, Math.max(2, Runtime.getRuntime().availableProcessors())));
+        List<Future<Void>> futures = new ArrayList<>();
 
         for (JsonElement libElement : libs) {
-
             JsonObject lib = libElement.getAsJsonObject();
 
             if (!MinecraftLauncher.isLibraryAllowed(lib)) {
                 if (lib.has("name")) {
                     System.out.println("Skipping disallowed library: " + lib.get("name").getAsString());
                 }
-                count++;
+                completed.incrementAndGet();
                 if (progressWindow != null) {
-                    progressWindow.setProgress(0.35f + (0.25f * count / total));
+                    progressWindow.setProgress(0.35f + (0.25f * completed.get() / total));
                 }
                 continue;
             }
 
-            String url = null;
-            String path = null;
+            futures.add(executor.submit(() -> {
+                String url = null;
+                String path = null;
 
-            // 1. Versuche artifact path (Standard)
-            if (lib.has("downloads")) {
-                JsonObject downloads = lib.getAsJsonObject("downloads");
-
-                if (downloads.has("artifact")) {
-                    JsonObject artifact = downloads.getAsJsonObject("artifact");
-                    url = artifact.get("url").getAsString();
-                    path = artifact.get("path").getAsString();
-                }
-            }
-
-            // 2. Fallback: Maven path (für Loader wie Fabric, Forge, etc.)
-            if (path == null && lib.has("name")) {
-                String maven = lib.get("name").getAsString();
-                String[] parts = maven.split(":");
-
-                if (parts.length >= 3) {
-                    String group = parts[0].replace('.', '/');
-                    String artifact = parts[1];
-                    String version = parts[2];
-                    path = group + "/" + artifact + "/" + version + "/" + artifact + "-" + version + ".jar";
-
-                    // Repository basierend auf group:artifact auswählen
-                    if (maven.contains("net.fabricmc")) {
-                        url = "https://maven.fabricmc.net/" + path;
-                    } else if (maven.contains("org.ow2.asm") || maven.contains("org.spongepowered")) {
-                        // ASM und Sponge/Mixin aus Maven Central
-                        url = "https://repo1.maven.org/maven2/" + path;
-                    } else {
-                        url = "https://libraries.minecraft.net/" + path;
+                if (lib.has("downloads")) {
+                    JsonObject downloads = lib.getAsJsonObject("downloads");
+                    if (downloads.has("artifact")) {
+                        JsonObject artifact = downloads.getAsJsonObject("artifact");
+                        url = artifact.get("url").getAsString();
+                        path = artifact.get("path").getAsString();
                     }
-                    System.out.println("[FALLBACK] Downloading: " + maven + " from " + url);
                 }
-            }
 
-            if (path == null || url == null) {
-                if (lib.has("name")) {
-                    System.out.println("[SKIP] Could not resolve: " + lib.get("name").getAsString());
-                }
-                count++;
-                if (progressWindow != null) {
-                    progressWindow.setProgress(0.35f + (0.25f * count / total));
-                }
-                continue;
-            }
-
-            // =========================
-            // NORMALE LIBRARY
-            // =========================
-            Path libPath = mcDir.resolve("libraries").resolve(path);
-
-            if (!Files.exists(libPath)) {
-
-                Files.createDirectories(libPath.getParent());
-
-                System.out.println("Downloading library: " + path);
-
-                try {
-                    HttpRequest request = HttpRequest.newBuilder()
-                            .uri(URI.create(url))
-                            .build();
-
-                    HttpResponse<InputStream> response =
-                            client.send(request, HttpResponse.BodyHandlers.ofInputStream());
-
-                    Files.copy(response.body(), libPath,
-                            StandardCopyOption.REPLACE_EXISTING);
-                    System.out.println("[SUCCESS] Downloaded: " + path);
-                } catch (Exception e) {
-                    System.out.println("Failed to download: " + url);
-                    e.printStackTrace();
-                }
-            }
-
-            // =========================
-            // NATIVES (NUR RICHTIGES OS)
-            // =========================
-            if (lib.has("downloads")) {
-                JsonObject downloads = lib.getAsJsonObject("downloads");
-
-                if (downloads.has("classifiers")) {
-                    JsonObject classifiers = downloads.getAsJsonObject("classifiers");
-
-                    String nativeKey = null;
-
-                    for (String key : classifiers.keySet()) {
-                        if (key.contains(osKey)) {
-                            nativeKey = key;
-                            break;
+                if (path == null && lib.has("name")) {
+                    String maven = lib.get("name").getAsString();
+                    String[] parts = maven.split(":");
+                    if (parts.length >= 3) {
+                        String group = parts[0].replace('.', '/');
+                        String artifact = parts[1];
+                        String version = parts[2];
+                        path = group + "/" + artifact + "/" + version + "/" + artifact + "-" + version + ".jar";
+                        if (maven.contains("net.fabricmc")) {
+                            url = "https://maven.fabricmc.net/" + path;
+                        } else if (maven.contains("org.ow2.asm") || maven.contains("org.spongepowered")) {
+                            url = "https://repo1.maven.org/maven2/" + path;
+                        } else {
+                            url = "https://libraries.minecraft.net/" + path;
                         }
                     }
+                }
 
-                    if (nativeKey != null) {
-                        JsonObject nativeObj = classifiers.getAsJsonObject(nativeKey);
+                if (path == null || url == null) {
+                    if (lib.has("name")) {
+                        System.out.println("[SKIP] Could not resolve: " + lib.get("name").getAsString());
+                    }
+                    markLibraryDownloadProgress(completed, total, progressWindow);
+                    return null;
+                }
 
-                        String nativeUrl = nativeObj.get("url").getAsString();
-                        String nativePath = nativeObj.get("path").getAsString();
+                Path libPath = mcDir.resolve("libraries").resolve(path);
+                if (!Files.exists(libPath)) {
+                    Files.createDirectories(libPath.getParent());
+                    System.out.println("Downloading library: " + path);
+                    try {
+                        HttpRequest request = HttpRequest.newBuilder().uri(URI.create(url)).build();
+                        HttpResponse<InputStream> response = client.send(request, HttpResponse.BodyHandlers.ofInputStream());
+                        Files.copy(response.body(), libPath, StandardCopyOption.REPLACE_EXISTING);
+                        System.out.println("[SUCCESS] Downloaded: " + path);
+                    } catch (Exception e) {
+                        System.out.println("Failed to download: " + url);
+                        e.printStackTrace();
+                    }
+                }
 
-                        Path nativeLibPath = mcDir.resolve("libraries").resolve(nativePath);
-
-                        if (!Files.exists(nativeLibPath)) {
-                            Files.createDirectories(nativeLibPath.getParent());
-
-                            System.out.println("Downloading native: " + nativePath);
-
-                            try {
-                                HttpRequest nativeRequest = HttpRequest.newBuilder()
-                                        .uri(URI.create(nativeUrl))
-                                        .build();
-
-                                HttpResponse<InputStream> nativeResponse =
-                                        client.send(nativeRequest, HttpResponse.BodyHandlers.ofInputStream());
-
-                                Files.copy(nativeResponse.body(), nativeLibPath,
-                                        StandardCopyOption.REPLACE_EXISTING);
-                            } catch (Exception e) {
-                                System.out.println("Failed to download native: " + nativeUrl);
-                                e.printStackTrace();
+                if (lib.has("downloads")) {
+                    JsonObject downloads = lib.getAsJsonObject("downloads");
+                    if (downloads.has("classifiers")) {
+                        JsonObject classifiers = downloads.getAsJsonObject("classifiers");
+                        String nativeKey = null;
+                        for (String key : classifiers.keySet()) {
+                            if (key.contains(osKey)) {
+                                nativeKey = key;
+                                break;
+                            }
+                        }
+                        if (nativeKey != null) {
+                            JsonObject nativeObj = classifiers.getAsJsonObject(nativeKey);
+                            String nativeUrl = nativeObj.get("url").getAsString();
+                            String nativePath = nativeObj.get("path").getAsString();
+                            Path nativeLibPath = mcDir.resolve("libraries").resolve(nativePath);
+                            if (!Files.exists(nativeLibPath)) {
+                                Files.createDirectories(nativeLibPath.getParent());
+                                System.out.println("Downloading native: " + nativePath);
+                                try {
+                                    HttpRequest nativeRequest = HttpRequest.newBuilder().uri(URI.create(nativeUrl)).build();
+                                    HttpResponse<InputStream> nativeResponse = client.send(nativeRequest, HttpResponse.BodyHandlers.ofInputStream());
+                                    Files.copy(nativeResponse.body(), nativeLibPath, StandardCopyOption.REPLACE_EXISTING);
+                                } catch (Exception e) {
+                                    System.out.println("Failed to download native: " + nativeUrl);
+                                    e.printStackTrace();
+                                }
                             }
                         }
                     }
                 }
-            }
 
-            count++;
-            if (progressWindow != null) {
-                progressWindow.setProgress(0.35f + (0.25f * count / total));
-            }
+                markLibraryDownloadProgress(completed, total, progressWindow);
+                return null;
+            }));
+        }
+
+        for (Future<Void> future : futures) {
+            future.get();
+        }
+        executor.shutdown();
+    }
+
+    private static void markLibraryDownloadProgress(AtomicInteger completed, int total, InstallationProgressWindow progressWindow) {
+        int count = completed.incrementAndGet();
+        if (progressWindow != null) {
+            progressWindow.setProgress(0.35f + (0.25f * count / total));
         }
     }
 
@@ -1490,27 +1504,45 @@ public class Version {
 
         JsonObject indexJson = JsonParser.parseReader(new FileReader(indexFile.toFile())).getAsJsonObject();
         JsonObject objects = indexJson.getAsJsonObject("objects");
-
+        List<Map.Entry<String, JsonObject>> pendingAssets = new ArrayList<>();
         for (String name : objects.keySet()) {
             JsonObject obj = objects.getAsJsonObject(name);
-
             String hash = obj.get("hash").getAsString();
             String sub = hash.substring(0, 2);
-
             Path assetFile = objectsDir.resolve(sub).resolve(hash);
-
-            if (Files.exists(assetFile)) continue;
-
-            Files.createDirectories(assetFile.getParent());
-
-            String assetUrl = "https://resources.download.minecraft.net/" + sub + "/" + hash;
-
-            System.out.println("Downloading asset: " + name);
-
-            try (InputStream in = new URL(assetUrl).openStream()) {
-                Files.copy(in, assetFile, StandardCopyOption.REPLACE_EXISTING);
+            if (!Files.exists(assetFile)) {
+                pendingAssets.add(new java.util.AbstractMap.SimpleEntry<>(name, obj));
             }
         }
+
+        if (pendingAssets.isEmpty()) {
+            return;
+        }
+
+        ExecutorService executor = Executors.newFixedThreadPool(Math.min(8, Math.max(2, Runtime.getRuntime().availableProcessors())));
+        List<Future<Void>> futures = new ArrayList<>();
+        for (Map.Entry<String, JsonObject> entry : pendingAssets) {
+            String name = entry.getKey();
+            JsonObject obj = entry.getValue();
+            futures.add(executor.submit(() -> {
+                String hash = obj.get("hash").getAsString();
+                String sub = hash.substring(0, 2);
+                Path assetFile = objectsDir.resolve(sub).resolve(hash);
+                if (Files.exists(assetFile)) return null;
+                Files.createDirectories(assetFile.getParent());
+                String assetUrl = "https://resources.download.minecraft.net/" + sub + "/" + hash;
+                System.out.println("Downloading asset: " + name);
+                try (InputStream in = new URL(assetUrl).openStream()) {
+                    Files.copy(in, assetFile, StandardCopyOption.REPLACE_EXISTING);
+                }
+                return null;
+            }));
+        }
+
+        for (Future<Void> future : futures) {
+            future.get();
+        }
+        executor.shutdown();
     }
 
     private static void downloadLogging(JsonObject versionJson, Path profileDir) throws Exception {
