@@ -79,6 +79,9 @@ public class FabricApiInstaller {
                     if (value.equalsIgnoreCase("Fabric")) {
                         hasFabric = true;
                     }
+                    if (value.equalsIgnoreCase("fabric")) {
+                        hasFabric = true;
+                    }
                 }
 
                 if (versionMatches && hasFabric) {

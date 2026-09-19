@@ -128,7 +128,8 @@ public class Content {
         startButton.setAlignmentX(Component.CENTER_ALIGNMENT);
         startButton.setContentAreaFilled(false);
         startButton.setBorderPainted(false);
-        startButton.setBackground(Cliont);
+        startButton.setOpaque(false);
+        startButton.setBackground(UIUtils.alpha(Cliont, 150));
         Dimension buttonSize = new Dimension(300, 100);
         startButton.setMaximumSize(buttonSize);
         startButton.setPreferredSize(buttonSize); // Wichtig, damit Swing die Größe erzwingt
@@ -137,23 +138,25 @@ public class Content {
 
         startButton.addActionListener(e -> {
             try {
-                //Main.setAppBusy(true);
+                String selectedProfile = versionBox.getSelectedItem() != null ? versionBox.getSelectedItem().toString() : "";
+                if (selectedProfile.isEmpty() || Main.isProfileRunning(selectedProfile)) {
+                    return;
+                }
                 startButton.setEnabled(false);
-                MinecraftLauncher.setVersion(versionBox.getSelectedItem().toString());
+                MinecraftLauncher.setVersion(selectedProfile);
                 System.out.println(Main.loginData);
                 Process process = MinecraftLauncher.launch(Main.loginData);
+                Main.setRunningProfile(selectedProfile, process);
 
                 new Thread(() -> {
                     try {
                         process.waitFor();
                     } catch (InterruptedException ignored) {
                     } finally {
-                        //        Main.setAppBusy(false);
                         startButton.setEnabled(true);
                     }
                 }).start();
             } catch (Exception ex) {
-                //Main.setAppBusy(false);
                 startButton.setEnabled(true);
                 ex.printStackTrace();
             }
@@ -162,13 +165,8 @@ public class Content {
         startPanel.add(startButton);
 
         Timer loginButtonCheckTimer = new Timer(500, e -> {
-            if (Main.loginData == null) {
-                startButton.setEnabled(false);
-                startButton.setBackground(UIUtils.BUTTON); // Deaktivierte Farbe
-            } else {
-                startButton.setEnabled(true);
-                startButton.setBackground(Cliont); // Zurück zu standard Farbe
-            }
+            String selectedProfile = versionBox.getSelectedItem() != null ? versionBox.getSelectedItem().toString() : "";
+            Main.configureProfileButtonState(startButton, selectedProfile, false);
         });
 
         loginButtonCheckTimer.start();
@@ -194,7 +192,7 @@ public class Content {
 
         JLabel emptyNews = new JLabel("Keine News verfügbar");
         emptyNews.setForeground(UIUtils.TEXT_MUTED);
-        emptyNews.setFont(mcFont.deriveFont(16f));
+        //emptyNews.setFont(mcFont.deriveFont(16f));
         emptyNews.setAlignmentX(Component.CENTER_ALIGNMENT);
 
         newsPanel.add(newsTitle);
@@ -206,7 +204,7 @@ public class Content {
 
         // ScrollPane & Wrapper (wie zuvor)
         JScrollPane scrollPane = new JScrollPane(mainPanel);
-        scrollPane.setBorder(null);
+        UIUtils.styleScrollPane(scrollPane);
         scrollPane.getViewport().setBackground(darkGrayBackground);
 
         JPanel wrapper = new JPanel(new BorderLayout());
@@ -227,6 +225,7 @@ public class Content {
         SwingUtilities.invokeLater(() -> {
             try {
                 DefaultComboBoxModel<String> model = (DefaultComboBoxModel<String>) versionBox.getModel();
+                String currentlySelected = versionBox.getSelectedItem() != null ? versionBox.getSelectedItem().toString() : null;
                 model.removeAllElements();
 
                 Path versionsDir = Paths.get(System.getProperty("user.home"), "AppData", "Roaming", ".cliont", "profiles");
@@ -243,13 +242,37 @@ public class Content {
                     model.addElement("No versions found");
                 }
 
-                // Wähle das erste Element aus, falls vorhanden
                 if (model.getSize() > 0) {
+                    if (currentlySelected != null) {
+                        for (int i = 0; i < model.getSize(); i++) {
+                            if (currentlySelected.equals(model.getElementAt(i))) {
+                                versionBox.setSelectedIndex(i);
+                                return;
+                            }
+                        }
+                    }
                     versionBox.setSelectedIndex(0);
                 }
             } catch (IOException e) {
                 System.err.println("Fehler beim Aktualisieren der Profil-Liste: " + e.getMessage());
             }
+        });
+    }
+
+    public static void selectProfile(String profileName) {
+        if (versionBox == null || profileName == null || profileName.isBlank()) {
+            return;
+        }
+
+        SwingUtilities.invokeLater(() -> {
+            ComboBoxModel<String> model = versionBox.getModel();
+            for (int i = 0; i < model.getSize(); i++) {
+                if (profileName.equals(model.getElementAt(i))) {
+                    versionBox.setSelectedIndex(i);
+                    return;
+                }
+            }
+            refreshProfileList();
         });
     }
 

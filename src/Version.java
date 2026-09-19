@@ -132,28 +132,7 @@ public class Version {
         JButton addMod = new JButton("+");
 
         topBar.add(search, BorderLayout.CENTER);
-        JPanel rightButtons = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 0));
-        rightButtons.setOpaque(false);
-        rightButtons.add(addMod);
-        JButton installEmoteBtn = new JButton("Install Emote");
-        installEmoteBtn.addActionListener(evt -> {
-            JFileChooser fc = new JFileChooser();
-            int res = fc.showOpenDialog(null);
-            if (res != JFileChooser.APPROVE_OPTION) return;
-            File jar = fc.getSelectedFile();
-            String[] options = {"vanilla","fabric","forge","neoforge"};
-            String loader = (String) JOptionPane.showInputDialog(null, "Select loader:", "Install Emote", JOptionPane.QUESTION_MESSAGE, null, options, options[0]);
-            if (loader == null) return;
-            try {
-                EmoteInstaller.installEmote(jar.toPath(), profilePath, loader, "");
-                JOptionPane.showMessageDialog(null, "Emote installed. If this profile is open in Minecraft, restart it to apply the change.");
-            } catch (Exception ex) {
-                ex.printStackTrace();
-                JOptionPane.showMessageDialog(null, "Failed to install emote: " + ex.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
-            }
-        });
-        rightButtons.add(installEmoteBtn);
-        topBar.add(rightButtons, BorderLayout.EAST);
+        topBar.add(addMod, BorderLayout.EAST);
 
         root.add(topBar, BorderLayout.SOUTH);
 
@@ -481,7 +460,7 @@ public class Version {
 
         root.add(top, BorderLayout.NORTH);
 
-        profileGrid = new JPanel(new WrapLayout(WrapLayout.LEFT, 20, 20));
+        profileGrid = new JPanel();
         profileGrid.setBackground(UIUtils.BG);
 
         JPanel wrapper = new JPanel(new BorderLayout());

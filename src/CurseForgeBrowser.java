@@ -10,9 +10,11 @@ import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
 import java.awt.*;
 import java.awt.event.MouseAdapter;
+import java.awt.image.BufferedImage;
 import java.awt.event.MouseEvent;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.io.Reader;
 import java.net.URI;
 import java.net.URL;
@@ -33,6 +35,10 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import com.google.gson.GsonBuilder;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipFile;
 
 public class CurseForgeBrowser {
     private static final String API_KEY = "$2a$10$8ZIpAo3NEB6uw9njXQP.Ge3cA2uG9HLaktlDbEEH3YpfNdFwGd/pq";
@@ -212,9 +218,8 @@ public class CurseForgeBrowser {
         contentPanel.add(statusLabel);
 
         JScrollPane scrollPane = new JScrollPane(contentPanel);
-        scrollPane.setBorder(null);
+        UIUtils.styleScrollPane(scrollPane);
         scrollPane.getViewport().setBackground(UIUtils.BG);
-        scrollPane.getVerticalScrollBar().setUnitIncrement(16);
         mainPanel.add(scrollPane, BorderLayout.CENTER);
 
         loadMods();
@@ -531,6 +536,25 @@ public class CurseForgeBrowser {
         }
     }
 
+    private static String normalizeLoaderName(String loader) {
+        if (loader == null || loader.isBlank()) return "Vanilla";
+        String trimmed = loader.trim();
+        if (trimmed.equalsIgnoreCase("Vanilla")) return "Vanilla";
+        if (trimmed.equalsIgnoreCase("Fabric")) return "Fabric";
+        if (trimmed.equalsIgnoreCase("Forge")) return "Forge";
+        if (trimmed.equalsIgnoreCase("NeoForge")) return "NeoForge";
+        if (trimmed.equalsIgnoreCase("Quilt")) return "Quilt";
+        return "Vanilla";
+    }
+
+    private static boolean isLoaderPrepared(Path profileDir, String loader) {
+        if (profileDir == null) return false;
+        if ("Fabric".equalsIgnoreCase(normalizeLoaderName(loader))) {
+            return Files.exists(profileDir.resolve("version.json")) && Files.exists(profileDir.resolve("fabric.json"));
+        }
+        return Files.exists(profileDir.resolve("version.json"));
+    }
+
     private static int detectLoaderFromName(String fileName) {
         if (fileName == null) return -1;
         String lower = fileName.toLowerCase(Locale.ROOT);
@@ -541,8 +565,8 @@ public class CurseForgeBrowser {
         return -1;
     }
 
-    private static void openCreateProfileDialog(JWindow parent, JPanel list, List<FileInfo> files) {
-        JDialog dialog = new JDialog(parent, "Create new profile", Dialog.ModalityType.APPLICATION_MODAL);
+    private static void openCreateProfileDialog(Window parent, JPanel list, List<FileInfo> files) {
+        JDialog dialog = new JDialog((Frame) null, "Create new profile", Dialog.ModalityType.APPLICATION_MODAL);
         dialog.setSize(360, 300);
         dialog.setLocationRelativeTo(parent);
 
@@ -591,8 +615,8 @@ public class CurseForgeBrowser {
             protected void paintComponent(Graphics g) {
                 Graphics2D g2 = (Graphics2D) g.create();
                 g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                Color bg = Cliont;
-                g2.setColor(getModel().isPressed() ? bg.darker() : bg);
+                Color bg = UIUtils.alpha(Cliont, 150);
+                g2.setColor(getModel().isPressed() ? UIUtils.alpha(bg.darker(), 170) : bg);
                 g2.fillRoundRect(0, 0, getWidth(), getHeight(), 12, 12);
                 g2.setColor(getForeground());
                 g2.setFont(getFont());
@@ -621,6 +645,8 @@ public class CurseForgeBrowser {
 
             try {
                 ProfileInfo created = createProfile(name, version, loader);
+                Content.refreshProfileList();
+                Content.selectProfile(created.name);
                 JPanel card = createInstallCard(created, files == null ? Collections.emptyList() : files);
                 list.add(card);
                 list.revalidate();
@@ -663,7 +689,7 @@ public class CurseForgeBrowser {
         panel.setBackground(UIUtils.SIDEBAR);
 
         JScrollPane scroll = new JScrollPane(list);
-        scroll.setBorder(null);
+        UIUtils.styleScrollPane(scroll);
         panel.add(scroll, BorderLayout.CENTER);
 
         JPanel topPanel = new JPanel(new BorderLayout());
@@ -735,7 +761,7 @@ public class CurseForgeBrowser {
         createProfileButton.setBorderPainted(false);
         createProfileButton.setFocusPainted(false);
         createProfileButton.setPreferredSize(new Dimension(190, 34));
-        createProfileButton.addActionListener(e -> openCreateProfileDialog(window, list, filesRef.get()));
+        createProfileButton.addActionListener(e -> openCreateProfileDialog(null, list, filesRef.get()));
 
         bottomBar.add(createProfileButton);
         panel.add(bottomBar, BorderLayout.SOUTH); // NEW
@@ -984,7 +1010,8 @@ public class CurseForgeBrowser {
         });
 
         JLabel iconLabel = new JLabel();
-        iconLabel.setPreferredSize(new Dimension(80, 80));
+        iconLabel.setHorizontalAlignment(SwingConstants.CENTER);
+        iconLabel.setPreferredSize(new Dimension(96, 96));
         loadIconAsync(iconLabel, iconUrl);
         card.add(iconLabel, BorderLayout.WEST);
 
@@ -1027,7 +1054,13 @@ public class CurseForgeBrowser {
         installButton.setBorder(null);
         installButton.setBackground(new Color(0, 0, 0, 0));
         installButton.setPreferredSize(new Dimension(70, 90));
-        installButton.addActionListener(e -> openInstallPanel(modId, name));
+        installButton.addActionListener(e -> {
+            if (currentContentType == 4471) {
+                installModpackDirect(modId, name);
+                return;
+            }
+            openInstallPanel(modId, name);
+        });
         card.add(installButton, BorderLayout.EAST);
         return card;
     }
@@ -1040,9 +1073,9 @@ public class CurseForgeBrowser {
             protected ImageIcon doInBackground() throws Exception {
                 URL url = URI.create(iconUrl).toURL();
                 try (InputStream in = url.openStream()) {
-                    Image image = ImageIO.read(in);
-                    if (image == null) return null;
-                    return new ImageIcon(image.getScaledInstance(80, 80, Image.SCALE_SMOOTH));
+                    BufferedImage source = ImageIO.read(in);
+                    if (source == null) return null;
+                    return scaleImageIcon(source, 96);
                 }
             }
 
@@ -1056,6 +1089,17 @@ public class CurseForgeBrowser {
                 }
             }
         }.execute();
+    }
+
+    private static ImageIcon scaleImageIcon(BufferedImage source, int targetSize) {
+        BufferedImage scaled = new BufferedImage(targetSize, targetSize, BufferedImage.TYPE_INT_ARGB);
+        Graphics2D g2 = scaled.createGraphics();
+        g2.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+        g2.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
+        g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+        g2.drawImage(source, 0, 0, targetSize, targetSize, null);
+        g2.dispose();
+        return new ImageIcon(scaled);
     }
 
     private static String getIconUrl(JsonObject mod) {
@@ -1193,6 +1237,435 @@ public class CurseForgeBrowser {
         info.version = version;
         info.loader = loader == null ? "unknown" : loader.toLowerCase(Locale.ROOT);
         return info;
+    }
+
+    private static void installModpackDirect(int modId, String modName) {
+        new SwingWorker<Void, Void>() {
+            @Override
+            protected Void doInBackground() {
+                List<FileInfo> files = getFiles(modId);
+                if (files == null || files.isEmpty()) {
+                    SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(null,
+                            "No files available for this modpack.", "No modpack files", JOptionPane.WARNING_MESSAGE));
+                    return null;
+                }
+
+                FileInfo selected = files.stream()
+                        .max(Comparator.comparingLong(f -> f.fileId))
+                        .orElse(null);
+                if (selected == null) {
+                    SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(null,
+                            "Could not prepare the modpack for installation.", "Install error", JOptionPane.ERROR_MESSAGE));
+                    return null;
+                }
+
+                try {
+                    String profileName = buildUniqueProfileName(modName);
+                    String version = pickBestGameVersion(selected.gameVersions);
+                    String loader = detectLoaderForModpack(selected, modId);
+
+                    ProfileInfo created = createProfile(profileName, version, loader);
+                    InstallationProgressWindow progressWindow = new InstallationProgressWindow(created.name);
+                    progressWindow.showWindow();
+                    try {
+                        prepareProfileFiles(created, version, loader, progressWindow);
+                        SwingUtilities.invokeLater(() -> {
+                            Content.refreshProfileList();
+                            Content.selectProfile(created.name);
+                        });
+                        installModpackZipToProfile(created, selected, progressWindow);
+                    } finally {
+                        progressWindow.complete();
+                    }
+                    SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(null,
+                            "Modpack profile created and selected: " + created.name,
+                            "Modpack installed", JOptionPane.INFORMATION_MESSAGE));
+                } catch (Exception ex) {
+                    ex.printStackTrace();
+                    SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(null,
+                            "Could not create modpack profile: " + ex.getMessage(), "Error", JOptionPane.ERROR_MESSAGE));
+                }
+                return null;
+            }
+        }.execute();
+    }
+
+    private static String pickBestGameVersion(List<String> versions) {
+        if (versions == null || versions.isEmpty()) return "1.20.1";
+
+        List<String> candidates = new ArrayList<>();
+        for (String version : versions) {
+            if (version == null || version.isBlank()) continue;
+            candidates.add(version.trim());
+        }
+        if (candidates.isEmpty()) return "1.20.1";
+
+        candidates.sort((a, b) -> compareMinecraftVersions(b, a));
+        return candidates.get(0);
+    }
+
+    private static int compareMinecraftVersions(String left, String right) {
+        int[] leftParts = parseMinecraftVersion(left);
+        int[] rightParts = parseMinecraftVersion(right);
+        int limit = Math.max(leftParts.length, rightParts.length);
+        for (int i = 0; i < limit; i++) {
+            int l = i < leftParts.length ? leftParts[i] : 0;
+            int r = i < rightParts.length ? rightParts[i] : 0;
+            if (l != r) return Integer.compare(l, r);
+        }
+        return 0;
+    }
+
+    private static int[] parseMinecraftVersion(String version) {
+        String cleaned = version.trim();
+        if (cleaned.startsWith("v") || cleaned.startsWith("V")) {
+            cleaned = cleaned.substring(1);
+        }
+        String[] parts = cleaned.split("[.-]");
+        List<Integer> numbers = new ArrayList<>();
+        for (String part : parts) {
+            if (part == null || part.isBlank()) continue;
+            try {
+                numbers.add(Integer.parseInt(part.replaceAll("[^0-9]", "")));
+            } catch (NumberFormatException ignored) {
+                // Ignore non-numeric suffixes like "pre" or "rc".
+            }
+        }
+        if (numbers.isEmpty()) return new int[]{0};
+        int[] result = new int[numbers.size()];
+        for (int i = 0; i < numbers.size(); i++) result[i] = numbers.get(i);
+        return result;
+    }
+
+    private static String detectLoaderForModpack(FileInfo selected, int modId) {
+        int loaderFromName = detectLoaderFromName(selected == null ? null : selected.fileName);
+        if (loaderFromName == 4) return "Fabric";
+        if (loaderFromName == 1) return "Forge";
+        if (loaderFromName == 6) return "NeoForge";
+        if (loaderFromName == 5) return "Quilt";
+        return "Vanilla";
+    }
+
+    private static void prepareProfileFiles(ProfileInfo profile, String version, String loader, InstallationProgressWindow progressWindow) throws Exception {
+        Path profileDir = profile.path;
+        String normalizedLoader = normalizeLoaderName(loader);
+        if (isLoaderPrepared(profileDir, normalizedLoader)) {
+            if (progressWindow != null) {
+                progressWindow.setProgress(0.55f);
+            }
+            return;
+        }
+
+        if (progressWindow != null) {
+            progressWindow.setProgress(0.05f);
+        }
+
+        switch (normalizedLoader) {
+            case "Fabric":
+                Version.downloadFabric(version, profileDir, progressWindow);
+                break;
+            case "Vanilla":
+                Version.downloadVanilla(version, profileDir, progressWindow);
+                break;
+            default:
+                throw new UnsupportedOperationException("Loader '" + loader + "' is not supported for automatic profile setup yet.");
+        }
+    }
+
+    private static void installModpackZipToProfile(ProfileInfo profile, FileInfo modpackFile, InstallationProgressWindow progressWindow) throws Exception {
+        Path modsDir = profile.path.resolve("mods");
+        Files.createDirectories(modsDir);
+
+        String archiveName = sanitizeFileName(modpackFile.fileName != null && !modpackFile.fileName.isBlank()
+                ? modpackFile.fileName : "modpack.zip");
+        Path archivePath = modsDir.resolve(archiveName);
+        downloadFileToPath(modpackFile.downloadUrl, archivePath);
+
+        try (ZipFile zipFile = new ZipFile(archivePath.toFile())) {
+            JsonObject manifest = findManifestJson(zipFile);
+            if (manifest != null) {
+                String loader = detectLoaderFromManifest(manifest, detectLoaderForModpack(modpackFile, modpackFile.modId));
+                if (!loader.equalsIgnoreCase(profile.loader)) {
+                    profile.loader = loader;
+                    writeProfileMetadata(profile);
+                }
+                installModsFromManifest(profile, zipFile, manifest, progressWindow);
+                return;
+            }
+
+            ZipEntry modListEntry = findModListEntry(zipFile);
+            if (modListEntry == null) {
+                installOverridesModsFromZip(profile, zipFile, progressWindow);
+                return;
+            }
+
+            String modListHtml = new String(zipFile.getInputStream(modListEntry).readAllBytes(), StandardCharsets.UTF_8);
+            Set<String> downloadUrls = parseModUrlsFromHtml(modListHtml);
+            if (downloadUrls.isEmpty()) {
+                installOverridesModsFromZip(profile, zipFile, progressWindow);
+                return;
+            }
+
+            int index = 0;
+            for (String href : downloadUrls) {
+                index++;
+                String clean = href.trim();
+                if (clean.isEmpty() || clean.startsWith("#")) continue;
+                if (clean.startsWith("http://") || clean.startsWith("https://")) {
+                    String fileName = extractFileNameFromUrl(clean);
+                    Path target = modsDir.resolve(fileName == null ? "downloaded_mod.jar" : sanitizeFileName(fileName));
+                    if (!Files.exists(target)) {
+                        downloadFileToPath(clean, target);
+                    }
+                    if (progressWindow != null) {
+                        progressWindow.setProgress(0.65f + (0.25f * index / Math.max(1, downloadUrls.size())));
+                    }
+                } else {
+                    String zipEntryName = clean.replace('\\', '/');
+                    if (zipEntryName.startsWith("/")) zipEntryName = zipEntryName.substring(1);
+                    ZipEntry entry = zipFile.getEntry(zipEntryName);
+                    if (entry == null) continue;
+                    String fileName = zipEntryName.contains("/") ? zipEntryName.substring(zipEntryName.lastIndexOf('/') + 1) : zipEntryName;
+                    if (fileName.isBlank()) continue;
+                    Path target = modsDir.resolve(sanitizeFileName(fileName));
+                    if (!Files.exists(target)) {
+                        try (InputStream in = zipFile.getInputStream(entry)) {
+                            Files.copy(in, target, StandardCopyOption.REPLACE_EXISTING);
+                        }
+                    }
+                    if (progressWindow != null) {
+                        progressWindow.setProgress(0.65f + (0.25f * index / Math.max(1, downloadUrls.size())));
+                    }
+                }
+            }
+        } finally {
+            Files.deleteIfExists(archivePath);
+        }
+    }
+
+    private static void writeProfileMetadata(ProfileInfo profile) throws IOException {
+        JsonObject json = new JsonObject();
+        json.addProperty("name", profile.name);
+        json.addProperty("version", profile.version == null ? "" : profile.version);
+        json.addProperty("loader", profile.loader == null ? "unknown" : profile.loader.toLowerCase(Locale.ROOT));
+        try (java.io.Writer writer = Files.newBufferedWriter(profile.path.resolve("profile.json"), StandardCharsets.UTF_8)) {
+            writer.write(new GsonBuilder().setPrettyPrinting().create().toJson(json));
+        }
+    }
+
+    private static JsonObject findManifestJson(ZipFile zipFile) {
+        Enumeration<? extends ZipEntry> entries = zipFile.entries();
+        while (entries.hasMoreElements()) {
+            ZipEntry entry = entries.nextElement();
+            String name = entry.getName();
+            if (name == null) continue;
+            String normalized = name.replace('\\', '/').toLowerCase(Locale.ROOT);
+            if (normalized.endsWith("manifest.json") || normalized.endsWith("modpack.json")) {
+                try (InputStream in = zipFile.getInputStream(entry)) {
+                    return JsonParser.parseReader(new InputStreamReader(in, StandardCharsets.UTF_8)).getAsJsonObject();
+                } catch (Exception e) {
+                    return null;
+                }
+            }
+        }
+        return null;
+    }
+
+    private static String detectLoaderFromManifest(JsonObject manifest, String fallback) {
+        if (manifest == null) return fallback;
+        JsonObject minecraft = manifest.has("minecraft") && manifest.get("minecraft").isJsonObject()
+                ? manifest.getAsJsonObject("minecraft")
+                : null;
+        if (minecraft != null && minecraft.has("modLoaders") && minecraft.get("modLoaders").isJsonArray()) {
+            for (JsonElement el : minecraft.getAsJsonArray("modLoaders")) {
+                JsonObject loaderObj = el.getAsJsonObject();
+                if (loaderObj.has("id")) {
+                    String id = loaderObj.get("id").getAsString();
+                    if (id.toLowerCase(Locale.ROOT).contains("fabric")) return "Fabric";
+                    if (id.toLowerCase(Locale.ROOT).contains("forge")) return "Forge";
+                    if (id.toLowerCase(Locale.ROOT).contains("neoforge")) return "NeoForge";
+                    if (id.toLowerCase(Locale.ROOT).contains("quilt")) return "Quilt";
+                }
+            }
+        }
+        if (manifest.has("modLoaders") && manifest.get("modLoaders").isJsonArray()) {
+            for (JsonElement el : manifest.getAsJsonArray("modLoaders")) {
+                String id = el.getAsString();
+                if (id.toLowerCase(Locale.ROOT).contains("fabric")) return "Fabric";
+                if (id.toLowerCase(Locale.ROOT).contains("forge")) return "Forge";
+                if (id.toLowerCase(Locale.ROOT).contains("neoforge")) return "NeoForge";
+                if (id.toLowerCase(Locale.ROOT).contains("quilt")) return "Quilt";
+            }
+        }
+        return fallback;
+    }
+
+    private static void installModsFromManifest(ProfileInfo profile, ZipFile zipFile, JsonObject manifest, InstallationProgressWindow progressWindow) throws IOException {
+        Path modsDir = profile.path.resolve("mods");
+        Files.createDirectories(modsDir);
+
+        if (manifest.has("files") && manifest.get("files").isJsonArray()) {
+            JsonArray files = manifest.getAsJsonArray("files");
+            int total = files.size();
+            for (int i = 0; i < total; i++) {
+                JsonElement el = files.get(i);
+                JsonObject fileObj = el.getAsJsonObject();
+                long fileId = fileObj.has("fileID") ? fileObj.get("fileID").getAsLong() : 0L;
+                int projectId = fileObj.has("projectID") ? fileObj.get("projectID").getAsInt() : 0;
+                if (projectId == 0 || fileId == 0L) continue;
+                List<FileInfo> projectFiles = getFiles(projectId);
+                FileInfo match = null;
+                for (FileInfo candidate : projectFiles) {
+                    if (candidate.fileId == fileId) {
+                        match = candidate;
+                        break;
+                    }
+                }
+                if (match == null || match.downloadUrl == null) continue;
+                String fileName = match.fileName == null || match.fileName.isBlank() ? "mod.jar" : match.fileName;
+                Path target = modsDir.resolve(sanitizeFileName(fileName));
+                if (!Files.exists(target)) {
+                    try {
+                        downloadFileToPath(match.downloadUrl, target);
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        throw new IOException("Interrupted while downloading modpack mod: " + fileName, e);
+                    }
+                }
+                if (progressWindow != null) {
+                    progressWindow.setProgress(0.65f + (0.25f * (i + 1) / Math.max(1, total)));
+                }
+            }
+        }
+
+        installOverridesModsFromZip(profile, zipFile, progressWindow);
+    }
+
+    private static void installOverridesModsFromZip(ProfileInfo profile, ZipFile zipFile, InstallationProgressWindow progressWindow) throws IOException {
+        Path modsDir = profile.path.resolve("mods");
+        Files.createDirectories(modsDir);
+
+        List<? extends ZipEntry> entries = Collections.list(zipFile.entries());
+        int total = entries.size();
+        for (int i = 0; i < total; i++) {
+            ZipEntry entry = entries.get(i);
+            String name = entry.getName();
+            if (name == null) continue;
+            String normalized = name.replace('\\', '/');
+            if (!normalized.toLowerCase(Locale.ROOT).startsWith("overrides/") && !normalized.toLowerCase(Locale.ROOT).contains("/mods/")) {
+                continue;
+            }
+            String fileName = normalized.substring(normalized.lastIndexOf('/') + 1);
+            if (fileName.isBlank() || !fileName.toLowerCase(Locale.ROOT).endsWith(".jar") && !fileName.toLowerCase(Locale.ROOT).endsWith(".zip") && !fileName.toLowerCase(Locale.ROOT).endsWith(".disabled")) {
+                continue;
+            }
+            Path target = modsDir.resolve(sanitizeFileName(fileName));
+            if (!Files.exists(target)) {
+                try (InputStream in = zipFile.getInputStream(entry)) {
+                    Files.copy(in, target, StandardCopyOption.REPLACE_EXISTING);
+                }
+            }
+            if (progressWindow != null) {
+                progressWindow.setProgress(0.65f + (0.25f * (i + 1) / Math.max(1, total)));
+            }
+        }
+    }
+
+    private static ZipEntry findModListEntry(ZipFile zipFile) {
+        Enumeration<? extends ZipEntry> entries = zipFile.entries();
+        while (entries.hasMoreElements()) {
+            ZipEntry entry = entries.nextElement();
+            String name = entry.getName();
+            if (name == null) continue;
+            String normalized = name.replace('\\', '/').toLowerCase(Locale.ROOT);
+            if (normalized.endsWith("modlist.html") || normalized.endsWith("modlist.htm")) {
+                return entry;
+            }
+        }
+        return null;
+    }
+
+    private static Set<String> parseModUrlsFromHtml(String html) {
+        Set<String> urls = new LinkedHashSet<>();
+        if (html == null || html.isBlank()) return urls;
+        Matcher matcher = Pattern.compile("href\\s*=\\s*[\"']([^\"']+)[\"']", Pattern.CASE_INSENSITIVE).matcher(html);
+        while (matcher.find()) {
+            String value = matcher.group(1).trim();
+            if (value.isEmpty() || value.startsWith("#") || value.equalsIgnoreCase("modlist.html")) continue;
+            if (value.toLowerCase(Locale.ROOT).endsWith(".html") || value.toLowerCase(Locale.ROOT).endsWith(".htm")) continue;
+            urls.add(value);
+        }
+        return urls;
+    }
+
+    private static String extractFileNameFromUrl(String url) {
+        try {
+            URI uri = URI.create(url);
+            String path = uri.getPath();
+            if (path == null || path.isBlank()) return null;
+            String fileName = path.substring(path.lastIndexOf('/') + 1);
+            return fileName.isBlank() ? null : fileName;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private static void downloadFileToPath(String url, Path target) throws IOException, InterruptedException {
+        if (url == null || url.isBlank()) throw new IOException("Empty download URL");
+        if (Files.exists(target)) return;
+
+        Files.createDirectories(target.getParent());
+
+        int attempts = 0;
+        while (attempts < 3) {
+            attempts++;
+            try {
+                HttpRequest request = HttpRequest.newBuilder()
+                        .uri(URI.create(url))
+                        .timeout(Duration.ofMinutes(10))
+                        .GET()
+                        .build();
+
+                HttpResponse<InputStream> response = HTTP_CLIENT.send(request, HttpResponse.BodyHandlers.ofInputStream());
+                if (response.statusCode() < 200 || response.statusCode() >= 300) {
+                    throw new IOException("Download failed: HTTP " + response.statusCode() + " for " + url);
+                }
+
+                try (InputStream in = response.body()) {
+                    Files.copy(in, target, StandardCopyOption.REPLACE_EXISTING);
+                }
+                return;
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw e;
+            } catch (Exception e) {
+                if (attempts >= 3) {
+                    throw new IOException("Download failed after 3 attempts: " + url, e);
+                }
+                if (Files.exists(target)) {
+                    Files.deleteIfExists(target);
+                }
+                Thread.sleep(1500L * attempts);
+            }
+        }
+    }
+
+    private static String buildUniqueProfileName(String baseName) {
+        String cleaned = baseName == null || baseName.isBlank() ? "Modpack" : baseName.trim();
+        String candidate = cleaned.replaceAll("[\\/:*?\"<>|]", "").trim();
+        if (candidate.isEmpty()) candidate = "Modpack";
+
+        String appData = System.getenv("APPDATA");
+        Path profilesDir = appData == null || appData.isBlank() ? null : Path.of(appData, ".cliont", "profiles");
+        if (profilesDir == null || !Files.isDirectory(profilesDir)) return candidate;
+
+        String finalName = candidate;
+        int index = 2;
+        while (Files.exists(profilesDir.resolve(finalName))) {
+            finalName = candidate + " " + index;
+            index++;
+        }
+        return finalName;
     }
 }
 

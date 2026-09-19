@@ -133,14 +133,6 @@ public class MinecraftLauncher {
         command.add(javaExe.toAbsolutePath().toString());
         //command.add("-Djava.library.path=" + nativesDir.toAbsolutePath());
         command.add("-Dfabric.modsFolder=Resources/Emotes/mod");
-        // If an emote Java agent is present in Resources/Emotes/emote-agent.jar, use it to inject emote rendering at runtime (no loader required).
-        Path agentJar = Paths.get("Resources", "Emotes", "emote-agent.jar");
-        if (Files.exists(agentJar)) {
-            command.add("-javaagent:" + agentJar.toAbsolutePath().toString());
-            System.out.println("Using emote javaagent: " + agentJar.toAbsolutePath());
-        } else {
-            System.out.println("Emote javaagent not found; vanilla-agent injection skipped. To enable no-loader emotes, place emote-agent.jar into Resources/Emotes/");
-        }
         command.add("-cp");
         command.add(classpath);
         command.add(mainClass);

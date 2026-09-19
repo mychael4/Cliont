@@ -119,6 +119,10 @@ public class Settings {
 
         Component root = Main.frame != null ? Main.frame.getContentPane() : settingsPanel;
         UIUtils.retheme(root, oldTheme);
+        Main.refreshTitleBarTheme();
+        for (Window w : Window.getWindows()) {
+            w.repaint();
+        }
 
         // Re-ring the swatches so the newly-picked one shows as active.
         for (Map.Entry<UIUtils.Theme, UIUtils.RoundedPanel> entry : swatches.entrySet()) {

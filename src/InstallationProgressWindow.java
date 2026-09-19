@@ -4,11 +4,9 @@ import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.awt.geom.RoundRectangle2D;
 
-public class InstallationProgressWindow extends JWindow {
+public class InstallationProgressWindow extends JDialog {
     private float progress = 0f;
     private String profileName;
-    private static final Color BG_COLOR = new Color(43, 43, 43);
-    private static final Color BORDER_COLOR = new Color(150, 150, 150);
     private static final Color CLIONT_VIOLET = Main.cliont;
     private static final int POPUP_WIDTH = 300;
     private static final int POPUP_HEIGHT = 100;
@@ -18,23 +16,29 @@ public class InstallationProgressWindow extends JWindow {
     private Rectangle closeButtonBounds;
 
     public InstallationProgressWindow(String profileName) {
+        super(Main.frame != null ? Main.frame : null, "", ModalityType.MODELESS);
         this.profileName = profileName;
-        
+
+        setUndecorated(true);
+        setResizable(false);
+        setFocusableWindowState(false);
+        setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
         setSize(POPUP_WIDTH, POPUP_HEIGHT);
-        
-        // Fenster transparent machen
+        setAlwaysOnTop(true);
         setBackground(new Color(0, 0, 0, 0));
         getContentPane().setBackground(new Color(0, 0, 0, 0));
-        
-        // Positioniere unten rechts in der Ecke
-        GraphicsEnvironment ge = GraphicsEnvironment.getLocalGraphicsEnvironment();
-        GraphicsDevice gd = ge.getDefaultScreenDevice();
-        DisplayMode dm = gd.getDisplayMode();
-        int screenWidth = dm.getWidth();
-        int screenHeight = dm.getHeight();
-        
-        setLocation(screenWidth - POPUP_WIDTH - 20, screenHeight - POPUP_HEIGHT - 60);
-        
+
+        if (Main.frame != null) {
+            setLocationRelativeTo(Main.frame);
+            setLocation(Main.frame.getX() + Main.frame.getWidth() - POPUP_WIDTH - 24,
+                    Main.frame.getY() + Main.frame.getHeight() - POPUP_HEIGHT - 28);
+        } else {
+            GraphicsEnvironment ge = GraphicsEnvironment.getLocalGraphicsEnvironment();
+            GraphicsDevice gd = ge.getDefaultScreenDevice();
+            DisplayMode dm = gd.getDisplayMode();
+            setLocation(dm.getWidth() - POPUP_WIDTH - 20, dm.getHeight() - POPUP_HEIGHT - 60);
+        }
+
         JPanel contentPanel = new JPanel() {
             @Override
             protected void paintComponent(Graphics g) {
@@ -46,41 +50,39 @@ public class InstallationProgressWindow extends JWindow {
                 int height = getHeight();
                 int padding = 10;
                 
-                // Zeichne Hintergrund mit abgerundeten Ecken
-                g2.setColor(BG_COLOR);
+                Color bg = UIUtils.BG;
+                Color border = UIUtils.LIGHT_BORDER;
+                Color text = UIUtils.TEXT;
+                Color mutedBar = UIUtils.BUTTON;
+
+                g2.setColor(bg);
                 g2.fillRoundRect(0, 0, width, height, BORDER_RADIUS, BORDER_RADIUS);
-                
-                // Zeichne Rand
-                g2.setColor(BORDER_COLOR);
+
+                g2.setColor(border);
                 g2.setStroke(new BasicStroke(BORDER_WIDTH));
                 g2.drawRoundRect(BORDER_WIDTH/2, BORDER_WIDTH/2, width - BORDER_WIDTH, height - BORDER_WIDTH, BORDER_RADIUS, BORDER_RADIUS);
-                
-                // Zeichne Profil-Namen oben links
-                g2.setColor(BORDER_COLOR);
+
+                g2.setColor(text);
                 g2.setFont(new Font("Arial", Font.BOLD, 24));
                 g2.drawString(profileName, padding + 5, padding + 20);
-                
-                // Zeichne Close-Button (X) oben rechts
+
                 int closeX = width - padding - CLOSE_BUTTON_SIZE;
                 int closeY = padding;
                 closeButtonBounds = new Rectangle(closeX, closeY, CLOSE_BUTTON_SIZE, CLOSE_BUTTON_SIZE);
-                
-                g2.setColor(BORDER_COLOR);
+
+                g2.setColor(border);
                 g2.setStroke(new BasicStroke(2));
                 int offset = 5;
                 g2.drawLine(closeX + offset, closeY + offset, closeX + CLOSE_BUTTON_SIZE - offset, closeY + CLOSE_BUTTON_SIZE - offset);
                 g2.drawLine(closeX + CLOSE_BUTTON_SIZE - offset, closeY + offset, closeX + offset, closeY + CLOSE_BUTTON_SIZE - offset);
-                
-                // Zeichne Progress Bar unten
+
                 int barY = height - padding - 15;
                 int barHeight = 8;
                 int barWidth = width - 2 * padding - 4;
-                
-                // Hintergrund der Progress Bar
-                g2.setColor(new Color(80, 80, 80));
+
+                g2.setColor(mutedBar);
                 g2.fillRoundRect(padding + 2, barY, barWidth, barHeight, 4, 4);
-                
-                // Fortschritts-Balken (Violet)
+
                 int progressWidth = (int) (barWidth * progress);
                 g2.setColor(CLIONT_VIOLET);
                 g2.fillRoundRect(padding + 2, barY, progressWidth, barHeight, 4, 4);
@@ -89,7 +91,7 @@ public class InstallationProgressWindow extends JWindow {
             }
         };
         
-        contentPanel.setBackground(BG_COLOR);
+        contentPanel.setBackground(UIUtils.BG);
         contentPanel.setOpaque(false);
         
         // Mouse Listener für Close Button
@@ -103,15 +105,17 @@ public class InstallationProgressWindow extends JWindow {
         });
         
         add(contentPanel);
-        
-        // Fenster transparent und alwaysOnTop
-        setAlwaysOnTop(true);
         setOpacity(1.0f);
     }
     
     public void setProgress(float progress) {
         this.progress = Math.max(0, Math.min(1, progress));
-        repaint();
+        Runnable r = this::repaint;
+        if (SwingUtilities.isEventDispatchThread()) {
+            r.run();
+        } else {
+            SwingUtilities.invokeLater(r);
+        }
     }
     
     public void complete() {
@@ -122,7 +126,17 @@ public class InstallationProgressWindow extends JWindow {
     }
     
     public void showWindow() {
-        SwingUtilities.invokeLater(() -> setVisible(true));
+        Runnable r = () -> {
+            setVisible(true);
+            toFront();
+            requestFocus();
+        };
+
+        if (SwingUtilities.isEventDispatchThread()) {
+            r.run();
+        } else {
+            SwingUtilities.invokeLater(r);
+        }
     }
 }
 

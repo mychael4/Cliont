@@ -1,9 +1,7 @@
 import javax.swing.*;
 import java.awt.*;
 
-public class CompletionWindow extends JWindow {
-    private static final Color BG_COLOR = new Color(43, 43, 43);
-    private static final Color BORDER_COLOR = new Color(150, 150, 150);
+public class CompletionWindow extends JDialog {
     private static final Color CLIONT_VIOLET = Main.cliont;
     private static final int POPUP_WIDTH = 300;
     private static final int POPUP_HEIGHT = 60;
@@ -12,21 +10,28 @@ public class CompletionWindow extends JWindow {
     private final String profileName;
 
     public CompletionWindow(String profileName) {
+        super(Main.frame != null ? Main.frame : null, "", ModalityType.MODELESS);
         this.profileName = profileName;
 
+        setUndecorated(true);
+        setResizable(false);
+        setFocusableWindowState(false);
+        setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
         setSize(POPUP_WIDTH, POPUP_HEIGHT);
-
-        // Fenster transparent machen
+        setAlwaysOnTop(true);
         setBackground(new Color(0, 0, 0, 0));
         getContentPane().setBackground(new Color(0, 0, 0, 0));
 
-        // Positioniere oben rechts in der Ecke
-        GraphicsEnvironment ge = GraphicsEnvironment.getLocalGraphicsEnvironment();
-        GraphicsDevice gd = ge.getDefaultScreenDevice();
-        DisplayMode dm = gd.getDisplayMode();
-        int screenWidth = dm.getWidth();
-
-        setLocation(screenWidth - POPUP_WIDTH - 20, 20);
+        if (Main.frame != null) {
+            setLocationRelativeTo(Main.frame);
+            setLocation(Main.frame.getX() + Main.frame.getWidth() - POPUP_WIDTH - 24,
+                    Main.frame.getY() + 24);
+        } else {
+            GraphicsEnvironment ge = GraphicsEnvironment.getLocalGraphicsEnvironment();
+            GraphicsDevice gd = ge.getDefaultScreenDevice();
+            DisplayMode dm = gd.getDisplayMode();
+            setLocation(dm.getWidth() - POPUP_WIDTH - 20, 20);
+        }
 
         JPanel contentPanel = new JPanel() {
             @Override
@@ -39,21 +44,21 @@ public class CompletionWindow extends JWindow {
                 int height = getHeight();
                 int padding = 10;
 
-                // Zeichne Hintergrund mit abgerundeten Ecken
-                g2.setColor(BG_COLOR);
+                Color bg = UIUtils.BG;
+                Color border = UIUtils.LIGHT_BORDER;
+                Color text = UIUtils.TEXT;
+
+                g2.setColor(bg);
                 g2.fillRoundRect(0, 0, width, height, BORDER_RADIUS, BORDER_RADIUS);
 
-                // Zeichne Rand
-                g2.setColor(BORDER_COLOR);
+                g2.setColor(border);
                 g2.setStroke(new BasicStroke(BORDER_WIDTH));
                 g2.drawRoundRect(BORDER_WIDTH / 2, BORDER_WIDTH / 2, width - BORDER_WIDTH, height - BORDER_WIDTH, BORDER_RADIUS, BORDER_RADIUS);
 
-                // Zeichne Profil-Namen links
-                g2.setColor(BORDER_COLOR);
+                g2.setColor(text);
                 g2.setFont(new Font("Arial", Font.BOLD, 16));
                 g2.drawString(profileName, padding + 5, padding + 18);
 
-                // Zeichne "Done" Text rechts
                 g2.setColor(CLIONT_VIOLET);
                 g2.setFont(new Font("Arial", Font.BOLD, 16));
                 FontMetrics fm = g2.getFontMetrics();
@@ -64,18 +69,25 @@ public class CompletionWindow extends JWindow {
             }
         };
 
-        contentPanel.setBackground(BG_COLOR);
+        contentPanel.setBackground(UIUtils.BG);
         contentPanel.setOpaque(false);
 
         add(contentPanel);
-
-        // Fenster transparent und alwaysOnTop
-        setAlwaysOnTop(true);
         setOpacity(1.0f);
     }
 
     public void showWindow() {
-        SwingUtilities.invokeLater(() -> setVisible(true));
+        Runnable r = () -> {
+            setVisible(true);
+            toFront();
+            requestFocus();
+        };
+
+        if (SwingUtilities.isEventDispatchThread()) {
+            r.run();
+        } else {
+            SwingUtilities.invokeLater(r);
+        }
 
         // Fenster nach 6 Sekunden automatisch schließen
         Timer timer = new Timer(6000, e -> dispose());

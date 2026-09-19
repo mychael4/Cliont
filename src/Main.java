@@ -5,7 +5,14 @@ import com.sun.net.httpserver.HttpServer;
 
 import javax.swing.*;
 import java.awt.*;
+import java.awt.event.ComponentEvent;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
+import java.awt.geom.RoundRectangle2D;
 import java.io.*;
+import java.util.Collections;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.net.*;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -35,12 +42,243 @@ public class Main {
     static String minecraftToken;
 
     public static Color cliont = new Color(188, 19, 254);
+    private static final Color TITLE_BAR_BG = new Color(250, 250, 250);
+    private static final Color TITLE_BAR_TEXT = new Color(22, 22, 22);
+    private static final Color TITLE_BAR_MUTED = new Color(112, 112, 112);
+    private static final Color RUNNING_GREEN = new Color(26, 170, 92);
+    private static JLabel titleStatusLabel;
+    private static JPanel titleBarPanel;
+    private static JPanel titleControlsPanel;
+    private static JPanel titleLeftGroup;
+    private static String activeProfileName;
+    private static final Set<String> runningProfiles = Collections.newSetFromMap(new ConcurrentHashMap<>());
 
     private static final String UPDATE_CHECK_URL = "http://192.168.1.72:25565/version.json";
 // ^ adjust this path to whatever the real API endpoint is - the #/updates
 //   route is client-side (SPA), so it won't return version data over plain HTTP.
 
     private static String CURRENT_LAUNCHER_VERSION = "0.0.0"; // fallback if file missing
+
+    private static Image loadAppImage(String resourcePath) {
+        URL url = Main.class.getResource(resourcePath);
+        if (url == null) return null;
+        return Toolkit.getDefaultToolkit().getImage(url);
+    }
+
+    public static boolean isProfileRunning(String profileName) {
+        return profileName != null && runningProfiles.contains(profileName.trim());
+    }
+
+    public static void refreshTitleBarTheme() {
+        if (titleBarPanel == null || titleLeftGroup == null || titleControlsPanel == null || titleStatusLabel == null) {
+            return;
+        }
+        Color bg = UIUtils.CARD;
+        Color text = UIUtils.TEXT;
+        Color muted = UIUtils.TEXT_MUTED;
+        Color buttonBg = UIUtils.BG;
+        titleBarPanel.setBackground(bg);
+        titleLeftGroup.setBackground(bg);
+        titleControlsPanel.setBackground(bg);
+        titleStatusLabel.setBackground(buttonBg);
+        titleStatusLabel.setForeground(isProfileRunning(activeProfileName) ? RUNNING_GREEN : muted);
+        for (Component c : titleLeftGroup.getComponents()) {
+            if (c instanceof JLabel) c.setForeground(text);
+        }
+        titleBarPanel.repaint();
+    }
+
+    private static void updateTitleStatusLabel() {
+        if (titleStatusLabel == null) return;
+        SwingUtilities.invokeLater(() -> {
+            if (activeProfileName != null && !activeProfileName.isBlank()) {
+                titleStatusLabel.setText("• Running: " + activeProfileName);
+                titleStatusLabel.setForeground(RUNNING_GREEN);
+            } else {
+                titleStatusLabel.setText("Ready");
+                titleStatusLabel.setForeground(UIUtils.TEXT_MUTED);
+            }
+            titleStatusLabel.repaint();
+            refreshTitleBarTheme();
+        });
+    }
+
+    public static void setRunningProfile(String profileName, Process process) {
+        if (profileName == null || profileName.isBlank()) return;
+        String trimmed = profileName.trim();
+        if (process != null) {
+            runningProfiles.add(trimmed);
+        } else {
+            runningProfiles.remove(trimmed);
+        }
+        activeProfileName = trimmed;
+        updateTitleStatusLabel();
+
+        if (process == null) return;
+        new Thread(() -> {
+            try {
+                process.waitFor();
+            } catch (InterruptedException ignored) {
+                Thread.currentThread().interrupt();
+            } finally {
+                runningProfiles.remove(trimmed);
+                activeProfileName = null;
+                updateTitleStatusLabel();
+            }
+        }, "profile-monitor").start();
+    }
+
+    public static void configureProfileButtonState(JButton button, String profileName, boolean allowWhenLoggedOut) {
+        if (button == null || profileName == null || profileName.isBlank()) {
+            return;
+        }
+
+        boolean running = isProfileRunning(profileName);
+        boolean loginReady = allowWhenLoggedOut || Main.loginData != null;
+        button.setEnabled(loginReady && !running);
+        if (button.getBackground() != null) {
+            button.setBackground(running || !loginReady ? UIUtils.BUTTON : Main.cliont);
+        }
+        if (button.getForeground() != null && !button.getForeground().equals(Color.WHITE)) {
+            button.setForeground(Color.WHITE);
+        }
+        button.setToolTipText(running ? "Profile is already running" : null);
+    }
+
+    private static JButton createWindowControlButton(String symbol, Color hoverColor, Runnable action) {
+        JButton button = new JButton() {
+            @Override
+            protected void paintComponent(Graphics g) {
+                Graphics2D g2 = (Graphics2D) g.create();
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                boolean hovered = getModel().isRollover();
+                boolean pressed = getModel().isPressed();
+                Color bg = pressed ? new Color(230, 230, 230) : (hovered ? hoverColor : new Color(245, 245, 245));
+                g2.setColor(bg);
+                g2.fillRoundRect(0, 0, getWidth(), getHeight(), 10, 10);
+                g2.setColor(pressed ? Color.WHITE : ("■".equals(symbol) ? new Color(210, 45, 45) : new Color(55, 55, 55)));
+                g2.setStroke(new BasicStroke(1.9f));
+
+                if ("—".equals(symbol)) {
+                    g2.drawLine(6, getHeight() / 2, getWidth() - 6, getHeight() / 2);
+                } else if ("□".equals(symbol)) {
+                    g2.drawRoundRect(7, 7, getWidth() - 14, getHeight() - 14, 3, 3);
+                } else {
+                    g2.drawLine(7, 7, getWidth() - 7, getHeight() - 7);
+                    g2.drawLine(getWidth() - 7, 7, 7, getHeight() - 7);
+                }
+                g2.dispose();
+            }
+        };
+        button.setFocusPainted(false);
+        button.setBorderPainted(false);
+        button.setContentAreaFilled(false);
+        button.setOpaque(false);
+        button.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+        button.setPreferredSize(new Dimension(26, 26));
+        button.setMinimumSize(new Dimension(26, 26));
+        button.setMaximumSize(new Dimension(26, 26));
+        button.setBorder(BorderFactory.createEmptyBorder(2, 2, 2, 2));
+        button.addActionListener(e -> action.run());
+        return button;
+    }
+
+    private static void applyWindowShape(JFrame frame) {
+        int state = frame.getExtendedState();
+        if ((state & Frame.MAXIMIZED_BOTH) == Frame.MAXIMIZED_BOTH) {
+            frame.setShape(null);
+        } else {
+            frame.setShape(new RoundRectangle2D.Double(0, 0, frame.getWidth(), frame.getHeight(), 22, 22));
+        }
+    }
+
+    private static void installCustomTitleBar(JFrame frame, JPanel mainContent) {
+        JPanel root = new JPanel(new BorderLayout());
+        root.setBackground(new Color(245, 245, 245));
+        root.setBorder(BorderFactory.createEmptyBorder(0, 0, 0, 0));
+
+        JPanel titleBar = new JPanel(new BorderLayout());
+        titleBarPanel = titleBar;
+        titleBar.setBackground(TITLE_BAR_BG);
+        titleBar.setBorder(BorderFactory.createEmptyBorder(8, 14, 8, 12));
+        titleBar.setPreferredSize(new Dimension(0, 52));
+
+        JPanel leftGroup = new JPanel(new FlowLayout(FlowLayout.LEFT, 10, 0));
+        titleLeftGroup = leftGroup;
+        leftGroup.setOpaque(false);
+
+        Image iconImage = loadAppImage("/Icon-rounded.png");
+        JLabel appIcon = iconImage == null
+                ? new JLabel("C")
+                : new JLabel(new ImageIcon(iconImage.getScaledInstance(22, 22, Image.SCALE_SMOOTH)));
+        appIcon.setBorder(BorderFactory.createEmptyBorder(2, 0, 2, 0));
+
+        JLabel appTitle = new JLabel("Cliont");
+        appTitle.setForeground(TITLE_BAR_TEXT);
+        appTitle.setFont(new Font("Arial", Font.BOLD, 14));
+
+        titleStatusLabel = new JLabel("Ready");
+        titleStatusLabel.setForeground(TITLE_BAR_MUTED);
+        titleStatusLabel.setFont(new Font("Arial", Font.PLAIN, 11));
+        titleStatusLabel.setBorder(BorderFactory.createEmptyBorder(2, 8, 2, 8));
+        titleStatusLabel.setOpaque(true);
+        titleStatusLabel.setBackground(new Color(244, 244, 244));
+        titleStatusLabel.setHorizontalAlignment(SwingConstants.CENTER);
+
+        leftGroup.add(appIcon);
+        leftGroup.add(appTitle);
+        leftGroup.add(titleStatusLabel);
+        titleBar.add(leftGroup, BorderLayout.WEST);
+
+        JPanel controlsPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
+        titleControlsPanel = controlsPanel;
+        controlsPanel.setOpaque(false);
+
+        JButton minimizeButton = createWindowControlButton("—", new Color(70, 70, 70), () -> frame.setState(Frame.ICONIFIED));
+        JButton maximizeButton = createWindowControlButton("□", new Color(70, 70, 70), () -> {
+            int state = frame.getExtendedState();
+            if ((state & Frame.MAXIMIZED_BOTH) == Frame.MAXIMIZED_BOTH) {
+                frame.setExtendedState(Frame.NORMAL);
+            } else {
+                frame.setExtendedState(Frame.MAXIMIZED_BOTH);
+            }
+        });
+        JButton closeButton = createWindowControlButton("✕", new Color(232, 83, 83), () -> System.exit(0));
+
+        controlsPanel.add(minimizeButton);
+        controlsPanel.add(maximizeButton);
+        controlsPanel.add(closeButton);
+        titleBar.add(controlsPanel, BorderLayout.EAST);
+
+        Point[] dragAnchor = {null};
+        titleBar.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mousePressed(MouseEvent e) {
+                dragAnchor[0] = e.getPoint();
+            }
+        });
+        titleBar.addMouseMotionListener(new java.awt.event.MouseMotionAdapter() {
+            @Override
+            public void mouseDragged(MouseEvent e) {
+                if (dragAnchor[0] == null) return;
+                Point current = MouseInfo.getPointerInfo().getLocation();
+                frame.setLocation(current.x - dragAnchor[0].x, current.y - dragAnchor[0].y);
+            }
+        });
+
+        frame.addComponentListener(new java.awt.event.ComponentAdapter() {
+            @Override
+            public void componentResized(ComponentEvent e) {
+                applyWindowShape(frame);
+            }
+        });
+
+        root.add(titleBar, BorderLayout.NORTH);
+        root.add(mainContent, BorderLayout.CENTER);
+        frame.setContentPane(root);
+        applyWindowShape(frame);
+        updateTitleStatusLabel();
+    }
 
     private static String loadCurrentVersion() {
         try (InputStream in = Main.class.getResourceAsStream("/version.json")) {
@@ -117,20 +355,18 @@ public class Main {
             try {
 
                 frame = new JFrame("Cliont");
-
+                frame.setUndecorated(true);
                 frame.setSize(900, 500);
-                frame.setIconImage(Toolkit.getDefaultToolkit().getImage(Main.class.getResource("/Icon-rounded.png")));
-
-                frame.setDefaultCloseOperation(
-                        JFrame.EXIT_ON_CLOSE
-                );
-
+                Image windowIcon = loadAppImage("/Icon-rounded.png");
+                if (windowIcon != null) {
+                    frame.setIconImage(windowIcon);
+                }
+                frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
                 frame.setLocationRelativeTo(null);
 
-                frame.setLayout(new BorderLayout());
-
-                JPanel centerPanel =
-                        new JPanel(new CardLayout());
+                JPanel centerPanel = new JPanel(new CardLayout());
+                JPanel appLayout = new JPanel(new BorderLayout());
+                appLayout.setBackground(UIUtils.BG);
 
                 JPanel content =
                         Content.create();
@@ -394,21 +630,22 @@ public class Main {
 
                 centerPanel.add(settings);
 
-                frame.add(
+                appLayout.add(
                         sidebar,
                         BorderLayout.WEST
                 );
 
-                frame.add(
+                appLayout.add(
                         rightSideBar,
                         BorderLayout.EAST
                 );
 
-                frame.add(
+                appLayout.add(
                         centerPanel,
                         BorderLayout.CENTER
                 );
 
+                installCustomTitleBar(frame, appLayout);
                 frame.setVisible(true);
 
                 mainFrame = frame;
@@ -1118,7 +1355,9 @@ public class Main {
                 Graphics2D g2 = (Graphics2D) g.create();
                 g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
                 Color base = getBackground();
-                Color bgColor = getModel().isPressed() ? base.darker() : (getModel().isRollover() ? base.brighter() : base);
+                Color bgColor = getModel().isPressed()
+                        ? UIUtils.alpha(base.darker(), 160)
+                        : (getModel().isRollover() ? UIUtils.alpha(base.brighter(), 180) : UIUtils.alpha(base, 120));
                 g2.setColor(bgColor);
                 g2.fillRoundRect(0, 0, getWidth(), getHeight(), 12, 12);
                 g2.setColor(getForeground());
@@ -1138,7 +1377,8 @@ public class Main {
         button.setFocusPainted(false);
         button.setBorderPainted(false);
         button.setContentAreaFilled(false);
-        button.setBackground(bg);
+        button.setOpaque(false);
+        button.setBackground(UIUtils.alpha(bg, 120));
 
         button.setForeground(UIUtils.TEXT);
 

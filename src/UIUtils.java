@@ -2,6 +2,7 @@ import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 
 import javax.swing.*;
+import javax.swing.plaf.basic.BasicScrollBarUI;
 import java.awt.*;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -168,6 +169,94 @@ public class UIUtils {
         }
     }
 
+    public static Color alpha(Color color, int alpha) {
+        if (color == null) {
+            return new Color(0, 0, 0, 0);
+        }
+        int a = Math.max(0, Math.min(255, alpha));
+        return new Color(color.getRed(), color.getGreen(), color.getBlue(), a);
+    }
+
+    public static void styleScrollPane(JScrollPane scrollPane) {
+        if (scrollPane == null) return;
+        scrollPane.setBorder(BorderFactory.createEmptyBorder());
+        scrollPane.setOpaque(false);
+        scrollPane.getViewport().setOpaque(false);
+
+        JScrollBar verticalBar = scrollPane.getVerticalScrollBar();
+        verticalBar.setUI(new ModernScrollBarUI());
+        verticalBar.setOpaque(false);
+        verticalBar.setUnitIncrement(16);
+
+        JScrollBar horizontalBar = scrollPane.getHorizontalScrollBar();
+        horizontalBar.setUI(new ModernScrollBarUI());
+        horizontalBar.setOpaque(false);
+        horizontalBar.setUnitIncrement(16);
+    }
+
+    public static final class ModernScrollBarUI extends BasicScrollBarUI {
+        private static final int THUMB_SIZE = 10;
+
+        @Override
+        protected void configureScrollBarColors() {
+            thumbColor = alpha(CLIONT, 180);
+            thumbDarkShadowColor = alpha(CLIONT.darker(), 180);
+            thumbLightShadowColor = alpha(CLIONT.brighter(), 180);
+            trackColor = new Color(0, 0, 0, 0);
+            trackHighlightColor = new Color(0, 0, 0, 0);
+        }
+
+        @Override
+        protected JButton createDecreaseButton(int orientation) {
+            return createZeroButton();
+        }
+
+        @Override
+        protected JButton createIncreaseButton(int orientation) {
+            return createZeroButton();
+        }
+
+        private JButton createZeroButton() {
+            JButton button = new JButton();
+            button.setPreferredSize(new Dimension(0, 0));
+            button.setMinimumSize(new Dimension(0, 0));
+            button.setMaximumSize(new Dimension(0, 0));
+            return button;
+        }
+
+        @Override
+        protected void paintTrack(Graphics g, JComponent c, Rectangle trackBounds) {
+            Graphics2D g2 = (Graphics2D) g.create();
+            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            g2.setColor(new Color(0, 0, 0, 0));
+            g2.fillRoundRect(trackBounds.x, trackBounds.y, trackBounds.width, trackBounds.height, 12, 12);
+            g2.dispose();
+        }
+
+        @Override
+        protected void paintThumb(Graphics g, JComponent c, Rectangle thumbBounds) {
+            if (thumbBounds.isEmpty() || !(c instanceof JScrollBar) || !c.isEnabled()) return;
+
+            Graphics2D g2 = (Graphics2D) g.create();
+            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            g2.setColor(alpha(CLIONT, 170));
+
+            int x = thumbBounds.x + 2;
+            int y = thumbBounds.y + 2;
+            int width = thumbBounds.width - 4;
+            int height = thumbBounds.height - 4;
+            if (width <= 0 || height <= 0) return;
+
+            g2.fillRoundRect(x, y, width, height, 10, 10);
+            g2.dispose();
+        }
+
+        @Override
+        public Dimension getPreferredSize(JComponent c) {
+            return new Dimension(THUMB_SIZE, THUMB_SIZE);
+        }
+    }
+
     /**
      * Walks the component tree from `root` and re-colors any component whose
      * background/foreground/border still matches one of oldTheme's colors,
@@ -257,11 +346,13 @@ public class UIUtils {
 
             Graphics2D g2 = (Graphics2D) g.create();
             g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-            g2.setColor(getBackground());
+            Color base = getBackground() == null ? new Color(0, 0, 0, 0) : getBackground();
+            int alpha = base.getAlpha() == 255 ? 150 : Math.max(40, base.getAlpha());
+            g2.setColor(new Color(base.getRed(), base.getGreen(), base.getBlue(), alpha));
             g2.fillRoundRect(0, 0, getWidth(), getHeight(), radius, radius);
 
             if (borderColor != null) {
-                g2.setColor(borderColor);
+                g2.setColor(alpha(borderColor, 80));
                 g2.setStroke(new BasicStroke(2));
                 g2.drawRoundRect(1, 1, getWidth() - 3, getHeight() - 3, radius, radius);
             }
