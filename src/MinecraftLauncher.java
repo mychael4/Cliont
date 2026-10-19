@@ -7,7 +7,6 @@ import java.nio.file.*;
 import java.util.*;
 import java.net.URL;
 import java.util.zip.*;
-
 public class MinecraftLauncher {
 
     private static String version;
@@ -63,7 +62,15 @@ public class MinecraftLauncher {
         if (!Files.exists(clientJar)) {
             throw new FileNotFoundException("Client.jar fehlt im Profil: " + clientJar);
         }
+        
         classpathEntries.add(clientJar.toAbsolutePath().toString());
+
+        // Add compiled launcher classes to classpath
+        Path launcherClasses = Paths.get("out", "production", "Cliont");
+        if (Files.exists(launcherClasses)) {
+            classpathEntries.add(launcherClasses.toAbsolutePath().toString());
+            System.out.println("[Cliont Cape] Added launcher classes to classpath: " + launcherClasses);
+        }
 
         for (JsonElement libEl : libraries) {
 
@@ -91,11 +98,19 @@ public class MinecraftLauncher {
             Path libFile = profileDir.resolve("libraries").resolve(path);
 
             if (Files.exists(libFile)) {
-                classpathEntries.add(libFile.toAbsolutePath().toString());
+                if (Version.isZipValid(libFile)) {
+                    classpathEntries.add(libFile.toAbsolutePath().toString());
+                } else {
+                    System.err.println("[WARN] Corrupted library skipped (invalid zip): " + path);
+                    System.err.println("[WARN] Delete this file and re-install the profile to fix: " + libFile);
+                }
             } else {
                 System.out.println("Fehlende Library: " + path);
             }
         }
+
+        // Pre-launch validation: verify client.jar is a valid zip
+        validateCriticalJar(clientJar, "client.jar");
 
         System.out.println("=== MAIN CLASS ===");
         System.out.println(mainClass);
@@ -163,13 +178,49 @@ public class MinecraftLauncher {
         command.add("--xuid");
         command.add("0");
 
-        Process process = new ProcessBuilder(command)
-                .inheritIO()
-                .start();
+        // Redirect Minecraft output to a log file so error messages are visible
+        // even if the console output is lost/cancelled.
+        Path logDir = profileDir.resolve("logs");
+        Files.createDirectories(logDir);
+        Path mcLogFile = logDir.resolve("minecraft-latest.log");
+
+        ProcessBuilder pb = new ProcessBuilder(command);
+        pb.redirectOutput(mcLogFile.toFile());
+        pb.redirectError(mcLogFile.toFile());
+        Process process = pb.start();
+
+        // Also stream output to console in real-time so the user sees it immediately.
+        new Thread(() -> {
+            try (var is = process.getInputStream();
+                 var reader = new java.io.BufferedReader(new java.io.InputStreamReader(is))) {
+                reader.lines().forEach(System.out::println);
+            } catch (Exception ignored) {}
+        }, "minecraft-stdout").start();
+
+        new Thread(() -> {
+            try (var is = process.getErrorStream();
+                 var reader = new java.io.BufferedReader(new java.io.InputStreamReader(is))) {
+                reader.lines().forEach(System.err::println);
+            } catch (Exception ignored) {}
+        }, "minecraft-stderr").start();
+
+        System.out.println("[Cliont] Minecraft log file: " + mcLogFile.toAbsolutePath());
 
         return process;
     }
 
+    /**
+     * Validates that a critical JAR file is a readable ZIP. Throws if it is
+     * corrupted so the launcher fails fast instead of launching a broken game.
+     */
+    private static void validateCriticalJar(Path jar, String label) {
+        if (jar == null || !Files.exists(jar)) return;
+        if (!Version.isZipValid(jar)) {
+            throw new IllegalStateException(
+                    "Korruptes JAR (" + label + "): " + jar
+                            + "\nLösche diese Datei und installiere das Profil erneut.");
+        }
+    }
 
     static void unzip(Path zipFile, Path targetDir) throws IOException {
 

@@ -7,7 +7,7 @@ public class CustomClientLauncher {
         try {
             System.out.println("[Client] Starte LaunchWrapper...");
 
-            File emoteModJar = new File("Resources/Emotes/mod/emotecraft-fabric-for-MC1.21.11-3.2.0-b.build.159.jar");
+            File emoteModJar = new File("");
 
             if (emoteModJar.exists()) {
                 // Unter Java 9+ nutzt man diese Methode für den System ClassPath:

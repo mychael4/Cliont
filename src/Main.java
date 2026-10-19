@@ -380,6 +380,11 @@ public class Main {
                 JPanel settings =
                         Settings.create();
 
+                Account accountPanel =
+                        new Account();
+                JPanel account =
+                        accountPanel.getPanel();
+
                 Color sideBarColor =
                         UIUtils.SIDEBAR;
 
@@ -458,6 +463,15 @@ public class Main {
                         );
                 versionsbutton.setAlignmentX(Component.CENTER_ALIGNMENT);
 
+                JButton accountButton =
+                        createSidebarButton(
+                                "Account",
+                                mcFont,
+                                buttonColor,
+                                new Dimension(200, 30)
+                        );
+                accountButton.setAlignmentX(Component.CENTER_ALIGNMENT);
+
                 JButton settingsButton =
                         createSidebarButton(
                                 "Settings",
@@ -477,6 +491,8 @@ public class Main {
 
                     settings.setVisible(false);
 
+                    account.setVisible(false);
+
                 });
 
                 modsbutton.addActionListener(e -> {
@@ -489,6 +505,7 @@ public class Main {
 
                     settings.setVisible(false);
 
+                    account.setVisible(false);
                 });
 
                 versionsbutton.addActionListener(e -> {
@@ -501,6 +518,7 @@ public class Main {
 
                     settings.setVisible(false);
 
+                    account.setVisible(false);
                 });
 
                 settingsButton.addActionListener(e -> {
@@ -513,6 +531,19 @@ public class Main {
 
                     settings.setVisible(true);
 
+                    account.setVisible(false);
+                });
+
+                accountButton.addActionListener(e -> {
+                    content.setVisible(false);
+
+                    version.setVisible(false);
+
+                    mods.setVisible(false);
+
+                    settings.setVisible(false);
+
+                    account.setVisible(true);
                 });
 
                 JPanel FunctionButtonsPanel = new JPanel();
@@ -531,7 +562,12 @@ public class Main {
 
                 sidebar.add(FunctionButtonsPanel);
 
-                sidebar.add(Box.createVerticalGlue()); // NEW: absorbs all leftover space, pushing everything after it to the bottom
+                sidebar.add(Box.createVerticalGlue());
+                // NEW: absorbs all leftover space, pushing everything after it to the bottom
+
+                sidebar.add(accountButton);
+
+                sidebar.add(Box.createVerticalStrut(10)); // Optional: gap between account and settings
 
                 sidebar.add(settingsButton);
 
@@ -629,6 +665,8 @@ public class Main {
                 centerPanel.add(mods);
 
                 centerPanel.add(settings);
+
+                centerPanel.add(account);
 
                 appLayout.add(
                         sidebar,

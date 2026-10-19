@@ -23,10 +23,12 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.time.Duration;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.zip.ZipEntry;
+import java.util.zip.ZipFile;
 import java.util.zip.ZipInputStream;
 
 public class Version {
@@ -1215,17 +1217,38 @@ public class Version {
                 }
 
                 Path libPath = mcDir.resolve("libraries").resolve(path);
-                if (!Files.exists(libPath)) {
-                    Files.createDirectories(libPath.getParent());
+                Files.createDirectories(libPath.getParent());
+                if (!Files.exists(libPath) || !isZipValid(libPath)) {
+                    if (Files.exists(libPath) && !isZipValid(libPath)) {
+                        System.out.println("[WARN] Corrupted library detected, re-downloading: " + path);
+                        try { Files.deleteIfExists(libPath); } catch (IOException ignored) {}
+                    }
                     System.out.println("Downloading library: " + path);
-                    try {
-                        HttpRequest request = HttpRequest.newBuilder().uri(URI.create(url)).build();
-                        HttpResponse<InputStream> response = client.send(request, HttpResponse.BodyHandlers.ofInputStream());
-                        Files.copy(response.body(), libPath, StandardCopyOption.REPLACE_EXISTING);
-                        System.out.println("[SUCCESS] Downloaded: " + path);
-                    } catch (Exception e) {
-                        System.out.println("Failed to download: " + url);
-                        e.printStackTrace();
+                    boolean downloaded = false;
+                    int attempts = 0;
+                    while (!downloaded && attempts < 3) {
+                        attempts++;
+                        try {
+                            HttpRequest request = HttpRequest.newBuilder().uri(URI.create(url))
+                                    .timeout(Duration.ofSeconds(60)).build();
+                            HttpResponse<InputStream> response = client.send(request, HttpResponse.BodyHandlers.ofInputStream());
+                            Path tmp = libPath.resolveSibling(libPath.getFileName().toString() + ".tmp");
+                            Files.copy(response.body(), tmp, StandardCopyOption.REPLACE_EXISTING);
+                            if (isZipValid(tmp)) {
+                                Files.move(tmp, libPath, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+                                System.out.println("[SUCCESS] Downloaded: " + path);
+                                downloaded = true;
+                            } else {
+                                System.out.println("[WARN] Downloaded file is not a valid zip, retrying: " + path);
+                                try { Files.deleteIfExists(tmp); } catch (IOException ignored) {}
+                            }
+                        } catch (Exception e) {
+                            System.out.println("Failed to download (attempt " + attempts + "): " + url);
+                            e.printStackTrace();
+                        }
+                    }
+                    if (!downloaded) {
+                        System.err.println("[ERROR] Library unavailable after download attempts: " + path);
                     }
                 }
 
@@ -1245,16 +1268,38 @@ public class Version {
                             String nativeUrl = nativeObj.get("url").getAsString();
                             String nativePath = nativeObj.get("path").getAsString();
                             Path nativeLibPath = mcDir.resolve("libraries").resolve(nativePath);
-                            if (!Files.exists(nativeLibPath)) {
-                                Files.createDirectories(nativeLibPath.getParent());
+                            Files.createDirectories(nativeLibPath.getParent());
+                            if (!Files.exists(nativeLibPath) || !isZipValid(nativeLibPath)) {
+                                if (Files.exists(nativeLibPath) && !isZipValid(nativeLibPath)) {
+                                    System.out.println("[WARN] Corrupted native detected, re-downloading: " + nativePath);
+                                    try { Files.deleteIfExists(nativeLibPath); } catch (IOException ignored) {}
+                                }
                                 System.out.println("Downloading native: " + nativePath);
-                                try {
-                                    HttpRequest nativeRequest = HttpRequest.newBuilder().uri(URI.create(nativeUrl)).build();
-                                    HttpResponse<InputStream> nativeResponse = client.send(nativeRequest, HttpResponse.BodyHandlers.ofInputStream());
-                                    Files.copy(nativeResponse.body(), nativeLibPath, StandardCopyOption.REPLACE_EXISTING);
-                                } catch (Exception e) {
-                                    System.out.println("Failed to download native: " + nativeUrl);
-                                    e.printStackTrace();
+                                boolean downloaded = false;
+                                int attempts = 0;
+                                while (!downloaded && attempts < 3) {
+                                    attempts++;
+                                    try {
+                                        HttpRequest nativeRequest = HttpRequest.newBuilder().uri(URI.create(nativeUrl))
+                                                .timeout(Duration.ofSeconds(60)).build();
+                                        HttpResponse<InputStream> nativeResponse = client.send(nativeRequest, HttpResponse.BodyHandlers.ofInputStream());
+                                        Path tmp = nativeLibPath.resolveSibling(nativeLibPath.getFileName().toString() + ".tmp");
+                                        Files.copy(nativeResponse.body(), tmp, StandardCopyOption.REPLACE_EXISTING);
+                                        if (isZipValid(tmp)) {
+                                            Files.move(tmp, nativeLibPath, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+                                            System.out.println("[SUCCESS] Downloaded native: " + nativePath);
+                                            downloaded = true;
+                                        } else {
+                                            System.out.println("[WARN] Downloaded native is not a valid zip, retrying: " + nativePath);
+                                            try { Files.deleteIfExists(tmp); } catch (IOException ignored) {}
+                                        }
+                                    } catch (Exception e) {
+                                        System.out.println("Failed to download native (attempt " + attempts + "): " + nativeUrl);
+                                        e.printStackTrace();
+                                    }
+                                }
+                                if (!downloaded) {
+                                    System.err.println("[ERROR] Native library unavailable after download attempts: " + nativePath);
                                 }
                             }
                         }
@@ -1276,6 +1321,22 @@ public class Version {
         int count = completed.incrementAndGet();
         if (progressWindow != null) {
             progressWindow.setProgress(0.35f + (0.25f * count / total));
+        }
+    }
+
+    /**
+     * Validates that a JAR/ZIP file is structurally intact by attempting to
+     * read its central directory. Returns false for truncated or corrupted
+     * downloads (e.g. "zip END header not found").
+     */
+    static boolean isZipValid(Path file) {
+        if (file == null || !Files.isRegularFile(file)) return false;
+        try (ZipFile zf = new ZipFile(file.toFile())) {
+            // Touch the entries to force reading the central directory.
+            zf.entries();
+            return true;
+        } catch (Exception e) {
+            return false;
         }
     }
 
