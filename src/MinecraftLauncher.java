@@ -3,9 +3,14 @@ import com.google.gson.stream.JsonReader;
 
 import javax.swing.*;
 import java.io.*;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.nio.file.*;
 import java.util.*;
 import java.net.URL;
+import java.util.jar.JarFile;
 import java.util.zip.*;
 public class MinecraftLauncher {
 
@@ -40,6 +45,9 @@ public class MinecraftLauncher {
         }
 
 
+        // ===== Corrupted file check and auto-repair before launch =====
+        repairCorruptedProfileFiles(profileDir, vanillaJson, launchJson);
+
         // ===== Libraries zusammenführen =====
         JsonArray libraries = mergeLibraries(vanillaJson, launchJson);
 
@@ -59,10 +67,11 @@ public class MinecraftLauncher {
 
         // ===== Client-JAR hinzufügen =====
         Path clientJar = profileDir.resolve("client.jar");
+        ensureCleanClientJar(profileDir, vanillaJson, vanillaJson);
         if (!Files.exists(clientJar)) {
             throw new FileNotFoundException("Client.jar fehlt im Profil: " + clientJar);
         }
-        
+
         classpathEntries.add(clientJar.toAbsolutePath().toString());
 
         // Add compiled launcher classes to classpath
@@ -146,8 +155,7 @@ public class MinecraftLauncher {
         Path javaExe = Version.getJavaRuntime(vanillaJson);
 
         command.add(javaExe.toAbsolutePath().toString());
-        //command.add("-Djava.library.path=" + nativesDir.toAbsolutePath());
-        command.add("-Dfabric.modsFolder=Resources/Emotes/mod");
+        command.add("-Djava.library.path=" + nativesDir.toAbsolutePath());
         command.add("-cp");
         command.add(classpath);
         command.add(mainClass);
@@ -178,35 +186,253 @@ public class MinecraftLauncher {
         command.add("--xuid");
         command.add("0");
 
-        // Redirect Minecraft output to a log file so error messages are visible
-        // even if the console output is lost/cancelled.
+        // Stream the whole Minecraft log to both the console and a log file so
+        // nothing is lost even if the console output is cancelled.
         Path logDir = profileDir.resolve("logs");
         Files.createDirectories(logDir);
         Path mcLogFile = logDir.resolve("minecraft-latest.log");
 
         ProcessBuilder pb = new ProcessBuilder(command);
-        pb.redirectOutput(mcLogFile.toFile());
-        pb.redirectError(mcLogFile.toFile());
         Process process = pb.start();
 
-        // Also stream output to console in real-time so the user sees it immediately.
+        java.io.PrintWriter logWriter = new java.io.PrintWriter(
+                Files.newBufferedWriter(mcLogFile, java.nio.charset.StandardCharsets.UTF_8,
+                        java.nio.file.StandardOpenOption.CREATE,
+                        java.nio.file.StandardOpenOption.TRUNCATE_EXISTING),
+                true);
+
+        // Stream stdout to console and log file in real-time.
         new Thread(() -> {
             try (var is = process.getInputStream();
                  var reader = new java.io.BufferedReader(new java.io.InputStreamReader(is))) {
-                reader.lines().forEach(System.out::println);
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    System.out.println(line);
+                    synchronized (logWriter) { logWriter.println(line); }
+                }
             } catch (Exception ignored) {}
         }, "minecraft-stdout").start();
 
+        // Stream stderr to console and log file in real-time.
         new Thread(() -> {
             try (var is = process.getErrorStream();
                  var reader = new java.io.BufferedReader(new java.io.InputStreamReader(is))) {
-                reader.lines().forEach(System.err::println);
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    System.err.println(line);
+                    synchronized (logWriter) { logWriter.println(line); }
+                }
             } catch (Exception ignored) {}
         }, "minecraft-stderr").start();
+
+        // Minecraft writes its full log (including errors) to gameDir/logs/latest.log.
+        // Tail that file so the whole log is listed in the console.
+        Path mcOwnLog = profileDir.resolve("logs").resolve("latest.log");
+        new Thread(() -> {
+            try {
+                // Wait for Minecraft to create its log file.
+                for (int i = 0; i < 60 && !Files.exists(mcOwnLog); i++) {
+                    Thread.sleep(500);
+                }
+                if (!Files.exists(mcOwnLog)) return;
+                try (var raf = new java.io.RandomAccessFile(mcOwnLog.toFile(), "r")) {
+                    long pos = 0;
+                    while (process.isAlive() || pos < raf.length()) {
+                        long len = raf.length();
+                        if (len > pos) {
+                            raf.seek(pos);
+                            String line;
+                            while ((line = raf.readLine()) != null) {
+                                System.out.println(line);
+                                synchronized (logWriter) { logWriter.println(line); }
+                            }
+                            pos = raf.getFilePointer();
+                        } else {
+                            Thread.sleep(200);
+                        }
+                    }
+                }
+            } catch (Exception ignored) {}
+        }, "minecraft-log-tail").start();
 
         System.out.println("[Cliont] Minecraft log file: " + mcLogFile.toAbsolutePath());
 
         return process;
+    }
+
+    /**
+     * Ensures the profile's client.jar is an official, usable Minecraft jar.
+     * Custom or partially-patched jars (for example client-patched-cape.jar or
+     * renamed backup files) can break the bootstrap classpath and cause ICU /
+     * DateFormat resolution errors. If the jar is broken, it is replaced by a
+     * clean download from the profile version metadata.
+     */
+    private static void ensureCleanClientJar(Path profileDir, JsonObject versionJson, JsonObject vanillaJson) throws Exception {
+        Path clientJar = profileDir.resolve("client.jar");
+        JsonObject manifestJson = versionJson != null && versionJson.has("downloads")
+                ? versionJson
+                : vanillaJson;
+
+        if (!Files.exists(clientJar) || !isUsableMinecraftClientJar(clientJar)) {
+            System.out.println("[Cliont] client.jar invalid or missing; re-downloading a clean official client jar.");
+            deleteKnownClientJarJunk(profileDir);
+            downloadOfficialClientJar(profileDir, manifestJson, clientJar);
+        }
+    }
+
+    private static void downloadOfficialClientJar(Path profileDir, JsonObject manifestJson, Path clientJar) throws Exception {
+        if (manifestJson == null || !manifestJson.has("downloads")
+                || !manifestJson.getAsJsonObject("downloads").has("client")) {
+            throw new IllegalStateException("No official client download metadata found for profile: " + profileDir);
+        }
+
+        JsonObject clientDownload = manifestJson.getAsJsonObject("downloads").getAsJsonObject("client");
+        if (!clientDownload.has("url")) {
+            throw new IllegalStateException("Official client jar URL missing for profile: " + profileDir);
+        }
+
+        String clientUrl = clientDownload.get("url").getAsString();
+        HttpClient client = HttpClient.newBuilder()
+                .sslContext(javax.net.ssl.SSLContext.getDefault())
+                .build();
+        HttpRequest request = HttpRequest.newBuilder().uri(URI.create(clientUrl)).timeout(java.time.Duration.ofSeconds(90)).build();
+        HttpResponse<InputStream> response = client.send(request, HttpResponse.BodyHandlers.ofInputStream());
+        Path tmpJar = profileDir.resolve("client.jar.download.tmp");
+        Files.createDirectories(profileDir);
+        try (InputStream in = response.body()) {
+            Files.copy(in, tmpJar, StandardCopyOption.REPLACE_EXISTING);
+        }
+        if (!Version.isZipValid(tmpJar) || !containsMinecraftBootstrap(tmpJar)) {
+            Files.deleteIfExists(tmpJar);
+            throw new IllegalStateException("Downloaded client jar is invalid or not a Minecraft boot jar: " + clientUrl);
+        }
+        Files.move(tmpJar, clientJar, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+        System.out.println("[Cliont] Clean client.jar restored: " + clientJar);
+    }
+
+    private static boolean isUsableMinecraftClientJar(Path jar) {
+        if (jar == null || !Files.isRegularFile(jar)) {
+            return false;
+        }
+        if (!Version.isZipValid(jar)) {
+            return false;
+        }
+        try (JarFile jf = new JarFile(jar.toFile())) {
+            return jf.getEntry("net/minecraft/client/main/Main.class") != null
+                    || jf.getEntry("net/minecraft/client/Main.class") != null;
+        } catch (IOException e) {
+            return false;
+        }
+    }
+
+    private static boolean containsMinecraftBootstrap(Path jar) {
+        try (JarFile jf = new JarFile(jar.toFile())) {
+            return jf.getEntry("net/minecraft/client/main/Main.class") != null
+                    || jf.getEntry("net/minecraft/client/Main.class") != null;
+        } catch (IOException e) {
+            return false;
+        }
+    }
+
+    private static void repairCorruptedProfileFiles(Path profileDir, JsonObject vanillaJson, JsonObject launchJson) throws Exception {
+        ensureCleanClientJar(profileDir, vanillaJson, vanillaJson);
+
+        JsonArray libraries = mergeLibraries(vanillaJson, launchJson);
+        HttpClient client = HttpClient.newBuilder()
+                .sslContext(javax.net.ssl.SSLContext.getDefault())
+                .build();
+
+        for (JsonElement libEl : libraries) {
+            JsonObject lib = libEl.getAsJsonObject();
+            String path = null;
+            String url = null;
+
+            if (lib.has("downloads")) {
+                JsonObject downloads = lib.getAsJsonObject("downloads");
+                if (downloads.has("artifact")) {
+                    JsonObject artifact = downloads.getAsJsonObject("artifact");
+                    path = artifact.get("path").getAsString();
+                    if (artifact.has("url")) {
+                        url = artifact.get("url").getAsString();
+                    }
+                }
+            }
+            if (path == null && lib.has("name")) {
+                path = mavenToPath(lib.get("name").getAsString());
+                url = resolveLibraryUrl(lib.get("name").getAsString());
+            }
+            if (path == null || url == null) {
+                continue;
+            }
+
+            Path libFile = profileDir.resolve("libraries").resolve(path);
+            if (!Files.exists(libFile) || !Version.isZipValid(libFile)) {
+                if (Files.exists(libFile) && !Version.isZipValid(libFile)) {
+                    System.out.println("[Cliont] Corrupt library detected; re-downloading: " + libFile);
+                    Files.deleteIfExists(libFile);
+                } else if (!Files.exists(libFile)) {
+                    System.out.println("[Cliont] Missing library detected; re-downloading: " + libFile);
+                }
+                Files.createDirectories(libFile.getParent());
+                HttpRequest request = HttpRequest.newBuilder().uri(URI.create(url)).timeout(java.time.Duration.ofSeconds(60)).build();
+                HttpResponse<InputStream> response = client.send(request, HttpResponse.BodyHandlers.ofInputStream());
+                Path tmp = libFile.resolveSibling(libFile.getFileName().toString() + ".download.tmp");
+                try (InputStream in = response.body()) {
+                    Files.copy(in, tmp, StandardCopyOption.REPLACE_EXISTING);
+                }
+                if (Version.isZipValid(tmp)) {
+                    Files.move(tmp, libFile, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+                } else {
+                    Files.deleteIfExists(tmp);
+                    throw new IllegalStateException("Downloaded library is invalid: " + libFile);
+                }
+            }
+        }
+    }
+
+    private static String resolveLibraryUrl(String name) {
+        if (name == null || name.isEmpty()) return null;
+        String[] parts = name.split(":");
+        if (parts.length < 3) return null;
+        String group = parts[0].replace('.', '/');
+        String artifact = parts[1];
+        String version = parts[2];
+        String path = group + "/" + artifact + "/" + version + "/" + artifact + "-" + version + ".jar";
+        if (name.contains("net.fabricmc")) {
+            return "https://maven.fabricmc.net/" + path;
+        }
+        if (name.contains("org.ow2.asm") || name.contains("org.spongepowered")) {
+            return "https://repo1.maven.org/maven2/" + path;
+        }
+        return "https://libraries.minecraft.net/" + path;
+    }
+
+    private static void deleteKnownClientJarJunk(Path profileDir) throws IOException {
+        if (profileDir == null || !Files.exists(profileDir)) {
+            return;
+        }
+        String[] junkNames = {
+                "client-patched-cape.jar",
+                "client.jar.before-cape-import-render-fix.bak",
+                "client.jar.before-cape-ui-fix.bak",
+                "client.jar.options-crash.bak"
+        };
+        for (String name : junkNames) {
+            Path p = profileDir.resolve(name);
+            if (Files.exists(p)) {
+                Files.deleteIfExists(p);
+            }
+        }
+        try (var stream = Files.walk(profileDir)) {
+            stream.filter(Files::isRegularFile)
+                    .filter(path -> path.getFileName().toString().startsWith("client.jar.") && path.getFileName().toString().endsWith(".bak"))
+                    .forEach(path -> {
+                        try {
+                            Files.deleteIfExists(path);
+                        } catch (IOException ignored) {
+                        }
+                    });
+        }
     }
 
     /**
@@ -217,7 +443,7 @@ public class MinecraftLauncher {
         if (jar == null || !Files.exists(jar)) return;
         if (!Version.isZipValid(jar)) {
             throw new IllegalStateException(
-                    "Korruptes JAR (" + label + "): " + jar
+                    "Korruptes JAR (" + label + ") : " + jar
                             + "\nLösche diese Datei und installiere das Profil erneut.");
         }
     }

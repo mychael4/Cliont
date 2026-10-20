@@ -1,31 +1,18 @@
-[15:30:35] [Datafixer Bootstrap #0/INFO]: 307 Datafixer optimizations took 633 milliseconds
-[15:30:43] [main/INFO]: Completely ignored arguments: [--userType, msa, --userProperties, {}]
-[15:30:43] [Render thread/INFO]: Environment: Environment[discoveryUrl=https://discovery.minecraftservices.com/minecraft/client, name=PROD]
-[15:30:43] [Render thread/INFO]: Setting user: My_chael
-[15:30:43] [Render thread/INFO]: Backend library: LWJGL version 3.4.3+4
-[15:30:43] [Render thread/INFO]: SDL [SYSTEM]: App name: Minecraft
-[15:30:43] [Render thread/INFO]: SDL [SYSTEM]: App version: 26.3
-[15:30:43] [Render thread/INFO]: SDL [SYSTEM]: App ID: com.mojang.minecraft
-[15:30:43] [Render thread/INFO]: SDL [SYSTEM]: SDL revision: SDL-3.4.14-62f10da
-[15:30:44] [Render thread/INFO]: Using graphics backend OpenGL, using drivers: 3.3.0 Core Profile Context 26.10.33.260717
-[15:30:44] [Render thread/INFO]: Using graphics device: AMD Radeon 780M Graphics (ATI Technologies Inc.)
-[15:30:44] [Render thread/INFO]: Using graphics device extensions: GL_ARB_multi_draw_indirect, GL_ARB_buffer_storage, GL_ARB_shader_draw_parameters, GL_ARB_base_instance, GL_KHR_debug, GL_ARB_draw_indirect, GL_ARB_clip_control, GL_ARB_vertex_attrib_binding, GL_ARB_direct_state_access, GL_EXT_texture_filter_anisotropic
-[15:30:44] [Render thread/INFO]: Created window using SDL video driver: windows
-[15:30:45] [Render thread/INFO]: Reloading ResourceManager: vanilla, vanilla
-[15:30:45] [Worker-Main-2/INFO]: Found unifont_all_no_pua-17.0.01.hex, loading
-[15:30:45] [Worker-Main-10/INFO]: Found unifont_pua-17.0.01.hex, loading
-[15:30:45] [Worker-Main-6/INFO]: Found unifont_jp_patch-17.0.01.hex, loading
-[15:30:49] [Render thread/INFO]: OpenAL initialized on device OpenAL Soft on Speakers (Senary Audio)
-[15:30:49] [Render thread/INFO]: Sound engine started
-[15:30:49] [Render thread/INFO]: Created: 512x256x0 minecraft:textures/atlas/particles.png-atlas
-[15:30:49] [Render thread/INFO]: Created: 256x128x0 minecraft:textures/atlas/celestials.png-atlas
-[15:30:49] [Render thread/INFO]: Created: 128x128x0 minecraft:textures/atlas/decorated_pot.png-atlas
-[15:30:49] [Render thread/INFO]: Created: 512x256x0 minecraft:textures/atlas/paintings.png-atlas
-[15:30:49] [Render thread/INFO]: Created: 1024x512x0 minecraft:textures/atlas/shield_patterns.png-atlas
-[15:30:49] [Render thread/INFO]: Created: 1024x512x0 minecraft:textures/atlas/banner_patterns.png-atlas
-[15:30:49] [Render thread/INFO]: Created: 2048x2048x4 minecraft:textures/atlas/blocks.png-atlas
-[15:30:49] [Render thread/INFO]: Created: 1024x512x0 minecraft:textures/atlas/items.png-atlas
-[15:30:49] [Render thread/INFO]: Created: 1024x1024x0 minecraft:textures/atlas/gui.png-atlas
-[15:30:49] [Render thread/INFO]: Created: 128x64x0 minecraft:textures/atlas/map_decorations.png-atlas
-[15:30:49] [Render thread/INFO]: Created: 512x512x0 minecraft:textures/atlas/chest.png-atlas
-[15:30:49] [Render thread/INFO]: Created: 512x512x0 minecraft:textures/atlas/shulker_boxes.png-atlas
+[11:14:51] [Datafixer Bootstrap #0/INFO]: 307 Datafixer optimizations took 516 milliseconds
+[11:14:57] [main/INFO]: Completely ignored arguments: [--userType, msa, --userProperties, {}]
+[11:14:57] [Render thread/INFO]: Environment: Environment[discoveryUrl=https://discovery.minecraftservices.com/minecraft/client, name=PROD]
+[11:14:57] [Render thread/INFO]: Setting user: My_chael
+[11:14:58] [Render thread/INFO]: Backend library: LWJGL version 3.4.3+4
+[11:14:58] [Render thread/WARN]: Detected unexpected shutdown during last game startup: resetting fullscreen mode
+[11:14:58] [Render thread/INFO]: SDL [SYSTEM]: App name: Minecraft
+[11:14:58] [Render thread/INFO]: SDL [SYSTEM]: App version: 26.3
+[11:14:58] [Render thread/INFO]: SDL [SYSTEM]: App ID: com.mojang.minecraft
+[11:14:58] [Render thread/INFO]: SDL [SYSTEM]: SDL revision: SDL-3.4.14-62f10da
+[11:14:58] [Render thread/INFO]: Using graphics backend OpenGL, using drivers: 3.3.0 Core Profile Context 26.10.33.260717
+[11:14:58] [Render thread/INFO]: Using graphics device: AMD Radeon 780M Graphics (ATI Technologies Inc.)
+[11:14:58] [Render thread/INFO]: Using graphics device extensions: GL_ARB_multi_draw_indirect, GL_ARB_buffer_storage, GL_ARB_shader_draw_parameters, GL_ARB_base_instance, GL_KHR_debug, GL_ARB_draw_indirect, GL_ARB_clip_control, GL_ARB_vertex_attrib_binding, GL_ARB_direct_state_access, GL_EXT_texture_filter_anisotropic
+[11:14:58] [Render thread/INFO]: Created window using SDL video driver: windows
+[11:14:59] [Render thread/INFO]: Reloading ResourceManager: vanilla, vanilla
+[11:14:59] [Worker-Main-4/INFO]: Found unifont_pua-17.0.01.hex, loading
+[11:14:59] [Worker-Main-5/INFO]: Found unifont_all_no_pua-17.0.01.hex, loading
+[11:14:59] [Worker-Main-3/INFO]: Found unifont_jp_patch-17.0.01.hex, loading

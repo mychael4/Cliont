@@ -1344,6 +1344,7 @@ public class Version {
     // DOWNLOAD VANILLA
     // ================================
     static void downloadVanilla(String version, Path profileDir, InstallationProgressWindow progressWindow) throws Exception {
+        cleanProfileClientJarArtifacts(profileDir);
 
         HttpClient client = HttpClient.newBuilder()
                 .sslContext(SSLContext.getDefault())
@@ -1443,6 +1444,7 @@ public class Version {
     static void downloadFabric(String version, Path profileDir, InstallationProgressWindow progressWindow) throws Exception {
 
         SSLFix.apply();
+        cleanProfileClientJarArtifacts(profileDir);
         // 1. Vanilla als Basis
         downloadVanilla(version, profileDir, progressWindow);
 
@@ -1488,6 +1490,36 @@ public class Version {
         // Libraries laden (Fabric + zusätzliche)
         downloadLibraries(fabricJson, profileDir, progressWindow);
         progressWindow.setProgress(0.90f);
+    }
+
+    private static void cleanProfileClientJarArtifacts(Path profileDir) throws IOException {
+        if (profileDir == null || !Files.exists(profileDir)) {
+            return;
+        }
+
+        String[] junkNames = {
+                "client-patched-cape.jar",
+                "client.jar.before-cape-import-render-fix.bak",
+                "client.jar.before-cape-ui-fix.bak",
+                "client.jar.options-crash.bak",
+                "client.jar.download.tmp"
+        };
+
+        for (String junkName : junkNames) {
+            Files.deleteIfExists(profileDir.resolve(junkName));
+        }
+
+        try (var stream = Files.walk(profileDir)) {
+            stream.filter(Files::isRegularFile)
+                    .filter(path -> path.getFileName().toString().startsWith("client.jar.")
+                            && (path.getFileName().toString().endsWith(".bak") || path.getFileName().toString().endsWith(".tmp")))
+                    .forEach(path -> {
+                        try {
+                            Files.deleteIfExists(path);
+                        } catch (IOException ignored) {
+                        }
+                    });
+        }
     }
 
     static String getLatestFabricLoader() throws Exception {
