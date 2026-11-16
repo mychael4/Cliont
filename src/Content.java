@@ -21,7 +21,14 @@ public class Content {
         Color lightBorder = UIUtils.LIGHT_BORDER; // Hellerer Strich
 
         InputStream fontStream = Content.class.getResourceAsStream("/Minecraft.ttf");
-        Font mcFont = Font.createFont(Font.TRUETYPE_FONT, fontStream).deriveFont(24f);
+        Font mcFont = new Font("SansSerif", Font.PLAIN, 24);
+        if (fontStream != null) {
+            try {
+                mcFont = Font.createFont(Font.TRUETYPE_FONT, fontStream).deriveFont(24f);
+            } catch (Exception ex) {
+                ex.printStackTrace();
+            }
+        }
 
         JPanel mainPanel = new JPanel();
         mainPanel.setLayout(new BoxLayout(mainPanel, BoxLayout.Y_AXIS));
@@ -57,7 +64,7 @@ public class Content {
         versionBox.setAlignmentX(Component.CENTER_ALIGNMENT);
         versionBox.setBackground(UIUtils.INPUT); // Hintergrundfarbe der Box
         versionBox.setForeground(UIUtils.TEXT);
-        versionBox.setFont(mcFont.deriveFont(16f));
+        //versionBox.setFont(mcFont.deriveFont(16f));
 
 // --- Pfeil entfernen und Ecken abrunden ---
         versionBox.setUI(new javax.swing.plaf.basic.BasicComboBoxUI() {
@@ -145,7 +152,7 @@ public class Content {
                 startButton.setEnabled(false);
                 MinecraftLauncher.setVersion(selectedProfile);
                 System.out.println(Main.loginData);
-                Process process = MinecraftLauncher.launch(Main.loginData);
+                Process process = Main.launchProfile(selectedProfile, () -> MinecraftLauncher.launch(Main.loginData));
                 Main.setRunningProfile(selectedProfile, process);
 
                 new Thread(() -> {
@@ -180,26 +187,83 @@ public class Content {
 
         // ===== Bottom Panel: News (Radius 20, mit Rand) =====
         RoundedPanel newsPanel = new RoundedPanel(20, lightBorder);
-        newsPanel.setLayout(new BoxLayout(newsPanel, BoxLayout.Y_AXIS));
+        newsPanel.setLayout(new BorderLayout(10, 10));
         newsPanel.setBackground(UIUtils.CARD);
-        newsPanel.setBorder(BorderFactory.createEmptyBorder(15, 20, 15, 20));
-        newsPanel.setMaximumSize(new Dimension(Integer.MAX_VALUE, 120)); // Feste Höhe unten
+        newsPanel.setBorder(BorderFactory.createEmptyBorder(14, 18, 14, 18));
+        newsPanel.setMaximumSize(new Dimension(Integer.MAX_VALUE, 220));
+
+        JPanel newsHeader = new JPanel(new BorderLayout());
+        newsHeader.setOpaque(false);
 
         JLabel newsTitle = new JLabel("NEWS");
         newsTitle.setFont(mcFont.deriveFont(18f));
         newsTitle.setForeground(UIUtils.TEXT);
-        newsTitle.setAlignmentX(Component.CENTER_ALIGNMENT);
 
-        JLabel emptyNews = new JLabel("Keine News verfügbar");
-        emptyNews.setForeground(UIUtils.TEXT_MUTED);
-        //emptyNews.setFont(mcFont.deriveFont(16f));
-        emptyNews.setAlignmentX(Component.CENTER_ALIGNMENT);
+        JLabel liveBadge = new JLabel("LIVE");
+        liveBadge.setOpaque(true);
+        liveBadge.setBackground(UIUtils.alpha(Cliont, 28));
+        liveBadge.setForeground(Cliont);
+        liveBadge.setFont(mcFont.deriveFont(10f).deriveFont(Font.BOLD));
+        liveBadge.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(UIUtils.alpha(Cliont, 80), 1, true),
+                BorderFactory.createEmptyBorder(4, 8, 4, 8)
+        ));
+        liveBadge.setHorizontalAlignment(SwingConstants.CENTER);
 
-        newsPanel.add(newsTitle);
-        newsPanel.add(Box.createVerticalGlue());
-        newsPanel.add(emptyNews);
-        newsPanel.add(Box.createVerticalGlue());
+        newsHeader.add(newsTitle, BorderLayout.WEST);
+        newsHeader.add(liveBadge, BorderLayout.EAST);
+        newsPanel.add(newsHeader, BorderLayout.NORTH);
 
+        JPanel newsList = new JPanel();
+        newsList.setLayout(new GridLayout(2, 3, 10, 10));
+        newsList.setOpaque(false);
+
+        String[][] newsItems = new String[][] {
+                {"Lilac Glow update", "Fresh purple UI polish and smoother launch flows."},
+                {"Profile sync", "Your custom Minecraft profiles now stay neatly organized."},
+                {"Faster install flow", "Mod setup and launcher checks are quicker than before."},
+                {"Forge ready", "Compatibility checks for modded setups are running cleaner."},
+                {"Launcher stability", "Fewer crashes while switching between profiles and versions."},
+                {"Quick play", "Launch your saved version with one click from the dashboard."}
+        };
+
+        for (String[] item : newsItems) {
+            RoundedPanel newsBlock = new RoundedPanel(16, UIUtils.alpha(Cliont, 55));
+            newsBlock.setLayout(new BorderLayout(10, 0));
+            newsBlock.setBackground(UIUtils.alpha(Cliont, 18));
+            newsBlock.setBorder(BorderFactory.createEmptyBorder(12, 14, 12, 14));
+            newsBlock.setPreferredSize(new Dimension(0, 150));
+
+            JLabel dot = new JLabel("•");
+            dot.setForeground(Cliont);
+            dot.setFont(new Font("SansSerif", Font.BOLD, 22));
+            dot.setHorizontalAlignment(SwingConstants.CENTER);
+            dot.setPreferredSize(new Dimension(18, 18));
+
+            JPanel textPanel = new JPanel();
+            textPanel.setLayout(new BoxLayout(textPanel, BoxLayout.Y_AXIS));
+            textPanel.setOpaque(false);
+
+            JLabel title = new JLabel(item[0]);
+            title.setForeground(UIUtils.TEXT);
+            title.setFont(mcFont.deriveFont(14f));
+            title.setAlignmentX(Component.LEFT_ALIGNMENT);
+
+            JLabel subtitle = new JLabel(item[1]);
+            subtitle.setForeground(UIUtils.TEXT_MUTED);
+            subtitle.setFont(mcFont.deriveFont(11f));
+            subtitle.setAlignmentX(Component.LEFT_ALIGNMENT);
+
+            textPanel.add(title);
+            textPanel.add(Box.createVerticalStrut(2));
+            textPanel.add(subtitle);
+
+            newsBlock.add(dot, BorderLayout.WEST);
+            newsBlock.add(textPanel, BorderLayout.CENTER);
+            newsList.add(newsBlock);
+        }
+
+        newsPanel.add(newsList, BorderLayout.CENTER);
         mainPanel.add(newsPanel);
 
         // ScrollPane & Wrapper (wie zuvor)

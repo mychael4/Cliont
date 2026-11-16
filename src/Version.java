@@ -38,6 +38,106 @@ public class Version {
     static CardLayout layout;
     private static final Color Cliont = Main.cliont;
 
+    public static class WrapLayout extends FlowLayout {
+        public WrapLayout() {
+            super();
+        }
+
+        public WrapLayout(int align) {
+            super(align);
+        }
+
+        public WrapLayout(int align, int hgap, int vgap) {
+            super(align, hgap, vgap);
+        }
+
+        @Override
+        public Dimension preferredLayoutSize(Container target) {
+            return layoutSize(target, true);
+        }
+
+        @Override
+        public Dimension minimumLayoutSize(Container target) {
+            return layoutSize(target, false);
+        }
+
+        private Dimension layoutSize(Container target, boolean preferred) {
+            synchronized (target.getTreeLock()) {
+                Insets insets = target.getInsets();
+                int width = target.getWidth();
+                if (width == 0) {
+                    width = Integer.MAX_VALUE;
+                }
+
+                int maxWidth = width - insets.left - insets.right;
+                int hgap = getHgap();
+                int vgap = getVgap();
+                int rowHeight = 0;
+                int currentRowWidth = insets.left + insets.right;
+                int totalHeight = insets.top + insets.bottom;
+                int maxRowWidth = 0;
+
+                for (Component component : target.getComponents()) {
+                    if (!component.isVisible()) {
+                        continue;
+                    }
+
+                    Dimension size = preferred ? component.getPreferredSize() : component.getMinimumSize();
+                    int componentWidth = size.width;
+                    int componentHeight = size.height;
+
+                    if (currentRowWidth > insets.left + insets.right && currentRowWidth + hgap + componentWidth > maxWidth) {
+                        totalHeight += rowHeight + vgap;
+                        maxRowWidth = Math.max(maxRowWidth, currentRowWidth - hgap);
+                        currentRowWidth = insets.left + insets.right;
+                        rowHeight = 0;
+                    }
+
+                    currentRowWidth += componentWidth + hgap;
+                    rowHeight = Math.max(rowHeight, componentHeight);
+                }
+
+                if (currentRowWidth > insets.left + insets.right) {
+                    totalHeight += rowHeight;
+                    maxRowWidth = Math.max(maxRowWidth, currentRowWidth - hgap);
+                }
+
+                return new Dimension(Math.max(1, maxRowWidth), Math.max(1, totalHeight));
+            }
+        }
+
+        @Override
+        public void layoutContainer(Container target) {
+            synchronized (target.getTreeLock()) {
+                Insets insets = target.getInsets();
+                int maxWidth = target.getWidth() - insets.left - insets.right;
+                int hgap = getHgap();
+                int vgap = getVgap();
+
+                int x = insets.left;
+                int y = insets.top;
+                int rowHeight = 0;
+
+                for (Component component : target.getComponents()) {
+                    if (!component.isVisible()) {
+                        continue;
+                    }
+
+                    Dimension size = component.getPreferredSize();
+                    if (x > insets.left && x + size.width + hgap > insets.left + maxWidth) {
+                        x = insets.left;
+                        y += rowHeight + vgap;
+                        rowHeight = 0;
+                    }
+
+                    component.setBounds(x, y, size.width, size.height);
+                    x += size.width + hgap;
+                    rowHeight = Math.max(rowHeight, size.height);
+                }
+            }
+        }
+    }
+
     public static JPanel create() throws IOException, FontFormatException {
 
 
@@ -104,7 +204,7 @@ public class Version {
             try {
                 String profileName = profilePath.getFileName().toString();
                 MinecraftLauncher.setVersion(profileName);
-                Process process = MinecraftLauncher.launch(Main.loginData);
+                Process process = Main.launchProfile(profileName, () -> MinecraftLauncher.launch(Main.loginData));
                 Main.setRunningProfile(profileName, process);
 
                 new Thread(() -> {
@@ -399,7 +499,9 @@ public class Version {
 
         JLabel title = new JLabel("Profiles");
         title.setForeground(Cliont);
-        title.setFont(mcFont);
+        //füge einen kleinen abstand von links hinzu, damit der text nicht direkt am rand klebt
+        title.setBorder(BorderFactory.createEmptyBorder(0, 10, 0, 0));
+        title.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 24));
 
         JButton add = new JButton("+") {
             @Override
@@ -462,8 +564,20 @@ public class Version {
 
         root.add(top, BorderLayout.NORTH);
 
-        profileGrid = new JPanel();
+        profileGrid = new JPanel(new WrapLayout(FlowLayout.LEFT, 18, 18));
         profileGrid.setBackground(UIUtils.BG);
+        profileGrid.setBorder(BorderFactory.createEmptyBorder(8, 12, 8, 12));
+        profileGrid.setAlignmentX(Component.LEFT_ALIGNMENT);
+        profileGrid.addComponentListener(new ComponentAdapter() {
+            @Override
+            public void componentResized(ComponentEvent e) {
+                SwingUtilities.invokeLater(() -> {
+                    profileGrid.revalidate();
+                    profileGrid.doLayout();
+                    profileGrid.repaint();
+                });
+            }
+        });
 
         JPanel wrapper = new JPanel(new BorderLayout());
         wrapper.setBackground(UIUtils.BG);
@@ -473,6 +587,16 @@ public class Version {
         UIUtils.styleScrollPane(scroll);
 
         root.add(scroll, BorderLayout.CENTER);
+
+        Timer layoutCheckTimer = new Timer(150, e -> {
+            if (profileGrid != null && profileGrid.isShowing()) {
+                profileGrid.revalidate();
+                profileGrid.doLayout();
+                profileGrid.repaint();
+            }
+        });
+        layoutCheckTimer.setRepeats(true);
+        layoutCheckTimer.start();
 
         loadProfiles();
 
@@ -494,17 +618,20 @@ public class Version {
                 Files.createDirectories(profilesDir);
 
             Files.list(profilesDir).forEach(p -> {
-
-                profileGrid.add(createProfileCard(p));
-
+                JPanel card = createProfileCard(p);
+                card.setAlignmentX(Component.LEFT_ALIGNMENT);
+                profileGrid.add(card);
             });
 
         } catch (Exception e) {
             e.printStackTrace();
         }
 
-        profileGrid.revalidate();
-        profileGrid.repaint();
+        SwingUtilities.invokeLater(() -> {
+            profileGrid.revalidate();
+            profileGrid.doLayout();
+            profileGrid.repaint();
+        });
     }
 
     // ================================
@@ -573,7 +700,7 @@ public class Version {
                     return;
                 }
                 MinecraftLauncher.setVersion(profileName);
-                Process process = MinecraftLauncher.launch(Main.loginData);
+                Process process = Main.launchProfile(profileName, () -> MinecraftLauncher.launch(Main.loginData));
                 Main.setRunningProfile(profileName, process);
 
                 new Thread(() -> {
@@ -1094,6 +1221,9 @@ public class Version {
                     } else if (loader.equals("Fabric")) {
                         downloadFabric(version, profileDir, progressWindow);
                         System.out.println("Downloading Fabric");
+                    } else if (loader.equals("Forge")) {
+                        downloadForge(version, profileDir, progressWindow);
+                        System.out.println("Downloading Forge");
                     }
 
                     // Complete the progress window
@@ -1135,11 +1265,102 @@ public class Version {
     // DOWNLOAD LIBRARIES
     // ================================
 
+    static Path getSharedLibrariesDir() {
+        return Paths.get(System.getenv("APPDATA"), ".cliont", "libraries");
+    }
+
+    static Path getSharedAssetsDir() {
+        return Paths.get(System.getenv("APPDATA"), ".cliont", "assets");
+    }
+
+    static String sanitizeLibraryVersionName(String versionName) {
+        if (versionName == null || versionName.isBlank()) {
+            return "unknown";
+        }
+        return versionName.replaceAll("[\\\\/:*?\"<>|]", "_");
+    }
+
+    static String resolveProfileVersion(Path profileDir, JsonObject fallbackJson) {
+        if (fallbackJson != null && fallbackJson.has("id") && !fallbackJson.get("id").getAsString().isBlank()) {
+            return fallbackJson.get("id").getAsString();
+        }
+
+        if (profileDir != null) {
+            Path versionJsonPath = profileDir.resolve("version.json");
+            if (Files.exists(versionJsonPath)) {
+                try {
+                    JsonObject versionJson = JsonParser.parseReader(new FileReader(versionJsonPath.toFile())).getAsJsonObject();
+                    if (versionJson.has("id") && !versionJson.get("id").getAsString().isBlank()) {
+                        return versionJson.get("id").getAsString();
+                    }
+                } catch (Exception ignored) {
+                }
+            }
+
+            Path profileJsonPath = profileDir.resolve("profile.json");
+            if (Files.exists(profileJsonPath)) {
+                try {
+                    JsonObject profileJson = JsonParser.parseReader(new FileReader(profileJsonPath.toFile())).getAsJsonObject();
+                    if (profileJson.has("version") && !profileJson.get("version").getAsString().isBlank()) {
+                        return profileJson.get("version").getAsString();
+                    }
+                } catch (Exception ignored) {
+                }
+            }
+        }
+
+        return "unknown";
+    }
+
+    static Path getSharedLibrariesDirForVersion(String versionName) {
+        return getSharedLibrariesDir().resolve(sanitizeLibraryVersionName(versionName));
+    }
+
+    static Path getSharedAssetsDirForVersion(String versionName) {
+        return getSharedAssetsDir().resolve(sanitizeLibraryVersionName(versionName));
+    }
+
+    static void migrateLegacyProfileLibraries(Path profileDir) throws IOException {
+        if (profileDir == null || !Files.isDirectory(profileDir)) {
+            return;
+        }
+
+        Path legacyLibrariesDir = profileDir.resolve("libraries");
+        if (!Files.isDirectory(legacyLibrariesDir)) {
+            return;
+        }
+
+        Path sharedLibrariesDir = getSharedLibrariesDirForVersion(resolveProfileVersion(profileDir, null));
+        Files.createDirectories(sharedLibrariesDir);
+
+        try (java.util.stream.Stream<Path> stream = Files.walk(legacyLibrariesDir)) {
+            for (Path source : stream.filter(Files::isRegularFile).toList()) {
+                Path relative = legacyLibrariesDir.relativize(source);
+                Path target = sharedLibrariesDir.resolve(relative.toString());
+                Files.createDirectories(target.getParent());
+                if (!Files.exists(target)) {
+                    Files.copy(source, target, StandardCopyOption.REPLACE_EXISTING);
+                }
+            }
+        }
+    }
+
     static void downloadLibraries(JsonObject versionJson, Path mcDir) throws Exception {
         downloadLibraries(versionJson, mcDir, null);
     }
 
     static void downloadLibraries(JsonObject versionJson, Path mcDir, InstallationProgressWindow progressWindow) throws Exception {
+        Path sharedLibrariesDir = getSharedLibrariesDirForVersion(resolveProfileVersion(mcDir, versionJson));
+        if (Files.isDirectory(sharedLibrariesDir)) {
+            System.out.println("[CACHE] Libraries already exist for version " + sharedLibrariesDir.getFileName() + ", skipping download.");
+            if (progressWindow != null) {
+                progressWindow.setProgress(0.60f);
+            }
+            return;
+        }
+
+        Files.createDirectories(sharedLibrariesDir);
+        migrateLegacyProfileLibraries(mcDir);
 
         JsonArray libs = versionJson.getAsJsonArray("libraries");
 
@@ -1216,7 +1437,7 @@ public class Version {
                     return null;
                 }
 
-                Path libPath = mcDir.resolve("libraries").resolve(path);
+                Path libPath = sharedLibrariesDir.resolve(path);
                 Files.createDirectories(libPath.getParent());
                 if (!Files.exists(libPath) || !isZipValid(libPath)) {
                     if (Files.exists(libPath) && !isZipValid(libPath)) {
@@ -1267,7 +1488,7 @@ public class Version {
                             JsonObject nativeObj = classifiers.getAsJsonObject(nativeKey);
                             String nativeUrl = nativeObj.get("url").getAsString();
                             String nativePath = nativeObj.get("path").getAsString();
-                            Path nativeLibPath = mcDir.resolve("libraries").resolve(nativePath);
+                            Path nativeLibPath = sharedLibrariesDir.resolve(nativePath);
                             Files.createDirectories(nativeLibPath.getParent());
                             if (!Files.exists(nativeLibPath) || !isZipValid(nativeLibPath)) {
                                 if (Files.exists(nativeLibPath) && !isZipValid(nativeLibPath)) {
@@ -1437,7 +1658,7 @@ public class Version {
         downloadLogging(versionJson, profileDir);
 
         Path nativesDir = profileDir.resolve("natives");
-        extractAllNatives(profileDir.resolve("libraries"), nativesDir);
+        extractAllNatives(getSharedLibrariesDirForVersion(resolveProfileVersion(profileDir, versionJson)), nativesDir);
         progressWindow.setProgress(0.95f);
     }
 
@@ -1492,22 +1713,109 @@ public class Version {
         progressWindow.setProgress(0.90f);
     }
 
+    static void downloadForge(String version, Path profileDir, InstallationProgressWindow progressWindow) throws Exception {
+        SSLFix.apply();
+        cleanProfileClientJarArtifacts(profileDir);
+        downloadVanilla(version, profileDir, progressWindow);
+
+        String forgeVersion = getLatestForgeVersion(version);
+        if (forgeVersion == null || forgeVersion.isBlank()) {
+            throw new IllegalStateException("No compatible Forge version was found for Minecraft " + version);
+        }
+
+        String installerUrl = "https://maven.minecraftforge.net/net/minecraftforge/forge/"
+                + version + "-" + forgeVersion + "/forge-" + version + "-" + forgeVersion + "-installer.jar";
+
+        HttpClient client = HttpClient.newBuilder()
+                .sslContext(SSLContext.getDefault())
+                .build();
+
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create(installerUrl))
+                .header("User-Agent", "Cliont")
+                .build();
+
+        HttpResponse<InputStream> response = client.send(request, HttpResponse.BodyHandlers.ofInputStream());
+        Path installerJar = profileDir.resolve("forge-installer.jar");
+        try (InputStream in = response.body()) {
+            Files.copy(in, installerJar, StandardCopyOption.REPLACE_EXISTING);
+        }
+
+        JsonObject installProfile;
+        JsonObject forgeJson;
+        try (java.util.zip.ZipFile zip = new java.util.zip.ZipFile(installerJar.toFile())) {
+            java.util.zip.ZipEntry entry = zip.getEntry("install_profile.json");
+            if (entry == null) {
+                throw new IllegalStateException("Forge installer is missing install_profile.json: " + installerJar);
+            }
+            try (InputStream entryStream = zip.getInputStream(entry)) {
+                installProfile = JsonParser.parseReader(new InputStreamReader(entryStream)).getAsJsonObject();
+            }
+
+            JsonElement jsonEntry = installProfile.get("json");
+            if (jsonEntry != null && jsonEntry.isJsonObject()) {
+                forgeJson = jsonEntry.getAsJsonObject();
+            } else if (jsonEntry != null && jsonEntry.isJsonPrimitive() && jsonEntry.getAsJsonPrimitive().isString()) {
+                String jsonPath = jsonEntry.getAsString().replaceFirst("^/", "");
+                java.util.zip.ZipEntry versionEntry = zip.getEntry(jsonPath);
+                if (versionEntry == null) {
+                    throw new IllegalStateException("Forge installer references missing version metadata: " + jsonPath + " in " + installerJar);
+                }
+                try (InputStream versionStream = zip.getInputStream(versionEntry)) {
+                    forgeJson = JsonParser.parseReader(new InputStreamReader(versionStream)).getAsJsonObject();
+                }
+            } else {
+                forgeJson = installProfile;
+            }
+        }
+
+        try (FileWriter writer = new FileWriter(profileDir.resolve("forge.json").toFile())) {
+            new GsonBuilder().setPrettyPrinting().create().toJson(forgeJson, writer);
+        }
+
+        downloadLibraries(forgeJson, profileDir, progressWindow);
+        progressWindow.setProgress(0.92f);
+    }
+
+    private static String getLatestForgeVersion(String minecraftVersion) throws Exception {
+        String url = "https://files.minecraftforge.net/net/minecraftforge/forge/promotions_slim.json";
+        HttpClient client = HttpClient.newBuilder()
+                .sslContext(SSLContext.getDefault())
+                .build();
+
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create(url))
+                .header("User-Agent", "Mozilla/5.0")
+                .build();
+
+        HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+        JsonObject promos = JsonParser.parseString(response.body()).getAsJsonObject().getAsJsonObject("promos");
+
+        String key = minecraftVersion + "-latest";
+        if (promos.has(key)) {
+            return promos.get(key).getAsString();
+        }
+
+        String fallback = minecraftVersion + "-recommended";
+        if (promos.has(fallback)) {
+            return promos.get(fallback).getAsString();
+        }
+
+        for (String promoKey : promos.keySet()) {
+            if (promoKey.startsWith(minecraftVersion + "-")) {
+                return promos.get(promoKey).getAsString();
+            }
+        }
+
+        return null;
+    }
+
     private static void cleanProfileClientJarArtifacts(Path profileDir) throws IOException {
         if (profileDir == null || !Files.exists(profileDir)) {
             return;
         }
 
-        String[] junkNames = {
-                "client-patched-cape.jar",
-                "client.jar.before-cape-import-render-fix.bak",
-                "client.jar.before-cape-ui-fix.bak",
-                "client.jar.options-crash.bak",
-                "client.jar.download.tmp"
-        };
 
-        for (String junkName : junkNames) {
-            Files.deleteIfExists(profileDir.resolve(junkName));
-        }
 
         try (var stream = Files.walk(profileDir)) {
             stream.filter(Files::isRegularFile)
@@ -1553,21 +1861,26 @@ public class Version {
     }
 
     private static void downloadAssets(JsonObject versionJson, Path profileDir) throws Exception {
+        String versionId = resolveProfileVersion(profileDir, versionJson);
+        Path sharedAssetsDir = getSharedAssetsDirForVersion(versionId);
+        if (Files.isDirectory(sharedAssetsDir) && Files.isDirectory(sharedAssetsDir.resolve("objects"))) {
+            System.out.println("[CACHE] Assets already exist for version " + versionId + ", skipping asset download.");
+            return;
+        }
+
+        Files.createDirectories(sharedAssetsDir);
 
         JsonObject assetIndexObj = versionJson.getAsJsonObject("assetIndex");
-
         String url = assetIndexObj.get("url").getAsString();
         String id = assetIndexObj.get("id").getAsString();
 
-        Path assetsDir = profileDir.resolve("assets");
-        Path indexDir = assetsDir.resolve("indexes");
-        Path objectsDir = assetsDir.resolve("objects");
+        Path indexDir = sharedAssetsDir.resolve("indexes");
+        Path objectsDir = sharedAssetsDir.resolve("objects");
 
         Files.createDirectories(indexDir);
         Files.createDirectories(objectsDir);
 
         Path indexFile = indexDir.resolve(id + ".json");
-
         if (!Files.exists(indexFile)) {
             try (InputStream in = new URL(url).openStream()) {
                 Files.copy(in, indexFile, StandardCopyOption.REPLACE_EXISTING);
@@ -1704,15 +2017,7 @@ public class Version {
     }
 
     static Path getJavaRuntime(JsonObject versionJson) throws Exception {
-
-        int javaVersion = 8;
-
-        if (versionJson.has("javaVersion")) {
-            javaVersion = versionJson
-                    .getAsJsonObject("javaVersion")
-                    .get("majorVersion")
-                    .getAsInt();
-        }
+        int javaVersion = detectRequiredJavaVersion(versionJson);
 
         Path runtimeDir = Paths.get(System.getenv("APPDATA"), ".cliont", "runtimes", "java" + javaVersion);
         Path javaExe = findJavaExecutable(runtimeDir);
@@ -1789,6 +2094,31 @@ public class Version {
         } catch (Exception e) {
             return false;
         }
+    }
+
+    private static int detectRequiredJavaVersion(JsonObject versionJson) {
+        if (versionJson == null) {
+            return 8;
+        }
+
+        if (versionJson.has("javaVersion") && versionJson.get("javaVersion").isJsonObject()) {
+            JsonObject javaVersionJson = versionJson.getAsJsonObject("javaVersion");
+            if (javaVersionJson.has("majorVersion")) {
+                return javaVersionJson.get("majorVersion").getAsInt();
+            }
+        }
+
+        String mainClass = versionJson.has("mainClass") ? versionJson.get("mainClass").getAsString() : "";
+        String launchTarget = versionJson.has("launchTarget") ? versionJson.get("launchTarget").getAsString() : "";
+        String id = versionJson.has("id") ? versionJson.get("id").getAsString() : "";
+
+        if ("net.minecraftforge.bootstrap.ForgeBootstrap".equals(mainClass)
+                || "forge_client".equals(launchTarget)
+                || id.toLowerCase().contains("forge")) {
+            return 21;
+        }
+
+        return 8;
     }
 
     private static int parseJavaMajorVersion(String versionOutput) {
@@ -1879,17 +2209,8 @@ public class Version {
         }
 
         private void loadMinecraftFont() {
-            try {
-                InputStream fontStream = ProfilePanel.class.getResourceAsStream("/Minecraft.ttf");
-                if (fontStream != null) {
-                    minecraftFont = Font.createFont(Font.TRUETYPE_FONT, fontStream).deriveFont(18f);
-                } else {
-                    minecraftFont = new Font("Arial", Font.PLAIN, 18);
-                }
-            } catch (Exception e) {
-                System.err.println("Fehler beim Laden der Minecraft-Schrift: " + e.getMessage());
-                minecraftFont = new Font("Arial", Font.PLAIN, 18);
-            }
+            // Only the account display in the right sidebar should use the standard UI font.
+            minecraftFont = new Font(Font.SANS_SERIF, Font.PLAIN, 14);
         }
 
         private void loadSkinHead() {
@@ -2122,6 +2443,7 @@ public class Version {
             logoutButton.setBorderPainted(false);
             logoutButton.setContentAreaFilled(false);
             logoutButton.setForeground(UIUtils.TEXT);
+            logoutButton.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 14));
 
             logoutButton.addActionListener(e -> {
                 if (onLogout != null) {

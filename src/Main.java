@@ -11,8 +11,10 @@ import java.awt.event.MouseEvent;
 import java.awt.geom.RoundRectangle2D;
 import java.io.*;
 import java.util.Collections;
+import java.util.Random;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Callable;
 import java.net.*;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -41,7 +43,7 @@ public class Main {
 
     static String minecraftToken;
 
-    public static Color cliont = new Color(188, 19, 254);
+    public static Color cliont = new Color(176, 88, 255);
     private static final Color TITLE_BAR_BG = new Color(250, 250, 250);
     private static final Color TITLE_BAR_TEXT = new Color(22, 22, 22);
     private static final Color TITLE_BAR_MUTED = new Color(112, 112, 112);
@@ -52,6 +54,8 @@ public class Main {
     private static JPanel titleLeftGroup;
     private static String activeProfileName;
     private static final Set<String> runningProfiles = Collections.newSetFromMap(new ConcurrentHashMap<>());
+    private static final Set<String> profileLaunchInProgress = Collections.newSetFromMap(new ConcurrentHashMap<>());
+    private static final ConcurrentHashMap<String, Object> profileLaunchLocks = new ConcurrentHashMap<>();
 
     private static final String UPDATE_CHECK_URL = "http://192.168.1.72:25565/version.json";
 // ^ adjust this path to whatever the real API endpoint is - the #/updates
@@ -103,6 +107,45 @@ public class Main {
         });
     }
 
+    public static Process launchProfile(String profileName, Callable<Process> launcher) throws Exception {
+        if (profileName == null || profileName.isBlank()) {
+            throw new IllegalArgumentException("Profile name is required.");
+        }
+
+        String trimmed = profileName.trim();
+        Object lock = profileLaunchLocks.computeIfAbsent(trimmed, key -> new Object());
+        synchronized (lock) {
+            if (profileLaunchInProgress.contains(trimmed)) {
+                throw new IllegalStateException("Profile is already starting: " + trimmed);
+            }
+            profileLaunchInProgress.add(trimmed);
+        }
+
+        try {
+            Process process = launcher.call();
+            if (process == null) {
+                unlockProfileLaunch(trimmed);
+            }
+            return process;
+        } catch (Exception e) {
+            unlockProfileLaunch(trimmed);
+            throw e;
+        }
+    }
+
+    public static void unlockProfileLaunch(String profileName) {
+        if (profileName == null || profileName.isBlank()) {
+            return;
+        }
+        String trimmed = profileName.trim();
+        Object lock = profileLaunchLocks.get(trimmed);
+        if (lock != null) {
+            synchronized (lock) {
+                profileLaunchInProgress.remove(trimmed);
+            }
+        }
+    }
+
     public static void setRunningProfile(String profileName, Process process) {
         if (profileName == null || profileName.isBlank()) return;
         String trimmed = profileName.trim();
@@ -110,6 +153,7 @@ public class Main {
             runningProfiles.add(trimmed);
         } else {
             runningProfiles.remove(trimmed);
+            unlockProfileLaunch(trimmed);
         }
         activeProfileName = trimmed;
         updateTitleStatusLabel();
@@ -124,6 +168,7 @@ public class Main {
                 runningProfiles.remove(trimmed);
                 activeProfileName = null;
                 updateTitleStatusLabel();
+                unlockProfileLaunch(trimmed);
             }
         }, "profile-monitor").start();
     }
@@ -153,10 +198,14 @@ public class Main {
                 g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
                 boolean hovered = getModel().isRollover();
                 boolean pressed = getModel().isPressed();
-                Color bg = pressed ? new Color(230, 230, 230) : (hovered ? hoverColor : new Color(245, 245, 245));
+                Color bg = pressed ? UIUtils.alpha(UIUtils.TEXT, 22) : (hovered ? UIUtils.alpha(UIUtils.TEXT, 14) : UIUtils.alpha(UIUtils.CARD, 230));
+                Graphics2D glow = (Graphics2D) g2.create();
+                glow.setColor(UIUtils.alpha(cliont, 18));
+                glow.fillRoundRect(1, 1, getWidth() - 2, getHeight() - 2, 10, 10);
+                glow.dispose();
                 g2.setColor(bg);
                 g2.fillRoundRect(0, 0, getWidth(), getHeight(), 10, 10);
-                g2.setColor(pressed ? Color.WHITE : ("■".equals(symbol) ? new Color(210, 45, 45) : new Color(55, 55, 55)));
+                g2.setColor(pressed ? UIUtils.alpha(UIUtils.TEXT, 220) : ("■".equals(symbol) ? new Color(210, 45, 45) : UIUtils.TEXT));
                 g2.setStroke(new BasicStroke(1.9f));
 
                 if ("—".equals(symbol)) {
@@ -192,14 +241,52 @@ public class Main {
         }
     }
 
+    private static JPanel createNoiseLayer(JPanel content) {
+        JPanel wrapper = new JPanel(new BorderLayout()) {
+            private final Random random = new Random(77L);
+
+            @Override
+            protected void paintComponent(Graphics g) {
+                super.paintComponent(g);
+                Graphics2D g2 = (Graphics2D) g.create();
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_OFF);
+                Color noiseColor = UIUtils.alpha(UIUtils.TEXT, 9);
+                int dots = Math.max(180, Math.min(700, getWidth() * getHeight() / 22));
+                for (int i = 0; i < dots; i++) {
+                    int x = random.nextInt(getWidth());
+                    int y = random.nextInt(getHeight());
+                    int size = random.nextInt(2) + 1;
+                    g2.setColor(new Color(noiseColor.getRed(), noiseColor.getGreen(), noiseColor.getBlue(), random.nextInt(10) + 8));
+                    g2.fillRect(x, y, size, size);
+                }
+                g2.dispose();
+            }
+        };
+        wrapper.setOpaque(false);
+        wrapper.setBackground(new Color(0, 0, 0, 0));
+        wrapper.add(content, BorderLayout.CENTER);
+        return wrapper;
+    }
+
     private static void installCustomTitleBar(JFrame frame, JPanel mainContent) {
         JPanel root = new JPanel(new BorderLayout());
-        root.setBackground(new Color(245, 245, 245));
+        root.setBackground(UIUtils.BG);
         root.setBorder(BorderFactory.createEmptyBorder(0, 0, 0, 0));
 
-        JPanel titleBar = new JPanel(new BorderLayout());
+        JPanel titleBar = new JPanel(new BorderLayout()) {
+            @Override
+            protected void paintComponent(Graphics g) {
+                super.paintComponent(g);
+                Graphics2D g2 = (Graphics2D) g.create();
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                GradientPaint gradient = new GradientPaint(0, 0, UIUtils.alpha(cliont, 18), getWidth(), 0, UIUtils.CARD);
+                g2.setPaint(gradient);
+                g2.fillRoundRect(0, 0, getWidth(), getHeight(), 20, 20);
+                g2.dispose();
+            }
+        };
         titleBarPanel = titleBar;
-        titleBar.setBackground(TITLE_BAR_BG);
+        titleBar.setBackground(UIUtils.CARD);
         titleBar.setBorder(BorderFactory.createEmptyBorder(8, 14, 8, 12));
         titleBar.setPreferredSize(new Dimension(0, 52));
 
@@ -214,15 +301,18 @@ public class Main {
         appIcon.setBorder(BorderFactory.createEmptyBorder(2, 0, 2, 0));
 
         JLabel appTitle = new JLabel("Cliont");
-        appTitle.setForeground(TITLE_BAR_TEXT);
+        appTitle.setForeground(UIUtils.TEXT);
         appTitle.setFont(new Font("Arial", Font.BOLD, 14));
 
         titleStatusLabel = new JLabel("Ready");
-        titleStatusLabel.setForeground(TITLE_BAR_MUTED);
+        titleStatusLabel.setForeground(UIUtils.TEXT_MUTED);
         titleStatusLabel.setFont(new Font("Arial", Font.PLAIN, 11));
-        titleStatusLabel.setBorder(BorderFactory.createEmptyBorder(2, 8, 2, 8));
+        titleStatusLabel.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(UIUtils.alpha(cliont, 45), 1, true),
+                BorderFactory.createEmptyBorder(2, 8, 2, 8)
+        ));
         titleStatusLabel.setOpaque(true);
-        titleStatusLabel.setBackground(new Color(244, 244, 244));
+        titleStatusLabel.setBackground(UIUtils.alpha(cliont, 18));
         titleStatusLabel.setHorizontalAlignment(SwingConstants.CENTER);
 
         leftGroup.add(appIcon);
@@ -236,12 +326,14 @@ public class Main {
 
         JButton minimizeButton = createWindowControlButton("—", new Color(70, 70, 70), () -> frame.setState(Frame.ICONIFIED));
         JButton maximizeButton = createWindowControlButton("□", new Color(70, 70, 70), () -> {
-            int state = frame.getExtendedState();
-            if ((state & Frame.MAXIMIZED_BOTH) == Frame.MAXIMIZED_BOTH) {
-                frame.setExtendedState(Frame.NORMAL);
-            } else {
-                frame.setExtendedState(Frame.MAXIMIZED_BOTH);
-            }
+           Rectangle maxBounds = GraphicsEnvironment.getLocalGraphicsEnvironment().getMaximumWindowBounds();
+           frame.setMaximizedBounds(maxBounds);
+           int state = frame.getExtendedState();
+           if ((state & Frame.MAXIMIZED_BOTH) == Frame.MAXIMIZED_BOTH) {
+               frame.setExtendedState(Frame.NORMAL);
+           } else {
+               frame.setExtendedState(Frame.MAXIMIZED_BOTH);
+           }
         });
         JButton closeButton = createWindowControlButton("✕", new Color(232, 83, 83), () -> System.exit(0));
 
@@ -340,7 +432,7 @@ public class Main {
         return false;
     }
 
-    static void main(String[] args)
+    public static void main(String[] args)
             throws Exception {
 
 
@@ -356,6 +448,8 @@ public class Main {
 
                 frame = new JFrame("Cliont");
                 frame.setUndecorated(true);
+                Rectangle maxBounds = GraphicsEnvironment.getLocalGraphicsEnvironment().getMaximumWindowBounds();
+                frame.setMaximizedBounds(maxBounds);
                 frame.setSize(900, 500);
                 Image windowIcon = loadAppImage("/Icon-rounded.png");
                 if (windowIcon != null) {
@@ -365,8 +459,35 @@ public class Main {
                 frame.setLocationRelativeTo(null);
 
                 JPanel centerPanel = new JPanel(new CardLayout());
-                JPanel appLayout = new JPanel(new BorderLayout());
-                appLayout.setBackground(UIUtils.BG);
+                JPanel appLayout = new JPanel(new BorderLayout()) {
+                    private final Random random = new Random(1337L);
+ 
+                    @Override
+                    protected void paintComponent(Graphics g) {
+                        super.paintComponent(g);
+                        Graphics2D g2 = (Graphics2D) g.create();
+                        g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_OFF);
+
+                        GradientPaint bgGradient = new GradientPaint(
+                                0, 0, UIUtils.alpha(cliont, 26),
+                                getWidth(), getHeight(), UIUtils.BG
+                        );
+                        g2.setPaint(bgGradient);
+                        g2.fillRect(0, 0, getWidth(), getHeight());
+
+                        Color noise = UIUtils.alpha(cliont, 30);
+                        for (int i = 0; i < 420; i++) {
+                            int x = random.nextInt(getWidth());
+                            int y = random.nextInt(getHeight());
+                            int size = random.nextInt(2) + 1;
+                            int alpha = random.nextInt(16) + 10;
+                            g2.setColor(new Color(noise.getRed(), noise.getGreen(), noise.getBlue(), alpha));
+                            g2.fillRect(x, y, size, size);
+                        }
+                        g2.dispose();
+                    }
+                };
+                appLayout.setBackground(UIUtils.alpha(cliont, 24));
 
                 JPanel content =
                         Content.create();
@@ -439,7 +560,6 @@ public class Main {
                 JButton homebutton =
                         createSidebarButton(
                                 "Home",
-                                mcFont,
                                 buttonColor,
                                 new Dimension(200, 30)
                         );
@@ -448,7 +568,6 @@ public class Main {
                 JButton modsbutton =
                         createSidebarButton(
                                 "Mods",
-                                mcFont,
                                 buttonColor,
                                 new Dimension(200, 30)
                         );
@@ -457,7 +576,6 @@ public class Main {
                 JButton versionsbutton =
                         createSidebarButton(
                                 "Profiles",
-                                mcFont,
                                 buttonColor,
                                 new Dimension(200, 30)
                         );
@@ -466,7 +584,6 @@ public class Main {
                 JButton accountButton =
                         createSidebarButton(
                                 "Account",
-                                mcFont,
                                 buttonColor,
                                 new Dimension(200, 30)
                         );
@@ -475,7 +592,6 @@ public class Main {
                 JButton settingsButton =
                         createSidebarButton(
                                 "Settings",
-                                mcFont,
                                 buttonColor,
                                 new Dimension(200, 30)
                         );
@@ -596,7 +712,6 @@ public class Main {
                     loginButton =
                             createSidebarButton(
                                     "Login",
-                                    mcFont,
                                     buttonColor,
                                     new Dimension(120, 40)
                             );
@@ -636,11 +751,10 @@ public class Main {
 
                     JButton updateAvailableButton = createSidebarButton(
                             "Update Available",
-                            mcFont,
                             cliont,
                             new Dimension(120, 40)
                     );
-                    updateAvailableButton.setFont(mcFont.deriveFont(14f));
+                    //updateAvailableButton.setFont(mcFont.deriveFont(14f));
                     updateAvailableButton.setForeground(Color.WHITE); // sits on the purple accent, stays white in every theme
                     updateAvailableButton.putClientProperty("cliont.themeExempt", true);
                     updateAvailableButton.addActionListener(e -> {
@@ -1341,7 +1455,8 @@ public class Main {
                 InputStream fontStream = Main.class.getResourceAsStream("/Minecraft.ttf");
                 Font mcFont = null;
                 try {
-                    mcFont = Font.createFont(Font.TRUETYPE_FONT, fontStream);
+                    //mcFont = Font.createFont(Font.TRUETYPE_FONT, fontStream);
+                    mcFont = new Font("Arial", Font.PLAIN, 18);
                 } catch (Exception ex) {
                     ex.printStackTrace();
                     mcFont = new Font("Arial", Font.PLAIN, 18);
@@ -1350,7 +1465,6 @@ public class Main {
                 Color buttonColor = UIUtils.BUTTON;
                 loginButton = createSidebarButton(
                         "Login",
-                        mcFont,
                         buttonColor,
                         new Dimension(120, 40)
                 );
@@ -1382,7 +1496,6 @@ public class Main {
 
     private static JButton createSidebarButton(
             String text,
-            Font font,
             Color bg,
             Dimension size
     ) {
@@ -1392,12 +1505,19 @@ public class Main {
             protected void paintComponent(Graphics g) {
                 Graphics2D g2 = (Graphics2D) g.create();
                 g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+
                 Color base = getBackground();
-                Color bgColor = getModel().isPressed()
-                        ? UIUtils.alpha(base.darker(), 160)
-                        : (getModel().isRollover() ? UIUtils.alpha(base.brighter(), 180) : UIUtils.alpha(base, 120));
-                g2.setColor(bgColor);
+                boolean hover = getModel().isRollover();
+                boolean pressed = getModel().isPressed();
+                Color fill = pressed ? base.darker() : (hover ? base.brighter() : base);
+                Color border = hover ? cliont : UIUtils.alpha(UIUtils.LIGHT_BORDER, 110);
+
+                g2.setColor(UIUtils.alpha(fill, 210));
                 g2.fillRoundRect(0, 0, getWidth(), getHeight(), 12, 12);
+                g2.setColor(UIUtils.alpha(border, 180));
+                g2.setStroke(new BasicStroke(1.5f));
+                g2.drawRoundRect(1, 1, getWidth() - 3, getHeight() - 3, 12, 12);
+
                 g2.setColor(getForeground());
                 g2.setFont(getFont());
                 FontMetrics fm = g2.getFontMetrics();
@@ -1408,7 +1528,7 @@ public class Main {
             }
         };
 
-        button.setFont(font.deriveFont(18f));
+//        button.setFont(font.deriveFont(18f));
         button.setMaximumSize(size);
         button.setPreferredSize(size);
         button.setAlignmentX(Component.CENTER_ALIGNMENT);
@@ -1416,8 +1536,7 @@ public class Main {
         button.setBorderPainted(false);
         button.setContentAreaFilled(false);
         button.setOpaque(false);
-        button.setBackground(UIUtils.alpha(bg, 120));
-
+        button.setBackground(UIUtils.alpha(bg, 130));
         button.setForeground(UIUtils.TEXT);
 
         return button;

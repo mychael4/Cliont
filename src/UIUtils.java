@@ -14,17 +14,17 @@ public class UIUtils {
     // --- Embedded Theme Enum ---
     public enum Theme {
         GRAY(
-                "Gray Theme",        // label
-                new Color(0x242424), // swatchColor (and bg)
-                new Color(0x242424), // bg
-                new Color(0x1E1E1E), // sidebar
-                new Color(0x2D2D2D), // card
-                new Color(0x333333), // input
-                new Color(0x3F3F3F), // border
-                new Color(0x4A4A4A), // button
-                new Color(0x555555), // hover
-                new Color(0xE0E0E0), // text
-                new Color(0xAAAAAA)  // textMuted
+                "Lilac Glow",       // label
+                new Color(0xF4E3FF), // swatchColor
+                new Color(0xF8F3FB), // bg
+                new Color(0xF0E7F8), // sidebar
+                new Color(0xFFFFFF), // card
+                new Color(0xF8F5FC), // input
+                new Color(0xE6D4F8), // border
+                new Color(0xEADFFF), // button
+                new Color(0xD8C3F7), // hover
+                new Color(0x241B2D), // text
+                new Color(0x6D5B7B)  // textMuted
         ),
         LIGHT(
                 "Light Theme",       // label
@@ -275,6 +275,10 @@ public class UIUtils {
         root.repaint();
     }
 
+    public static Color withAlpha(Color color, int alpha) {
+        return alpha(color, alpha);
+    }
+
     private static void remap(Component c, Theme old) {
         if (c instanceof JComponent) {
             Object exempt = ((JComponent) c).getClientProperty("cliont.themeExempt");
@@ -348,13 +352,19 @@ public class UIUtils {
             g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
             Color base = getBackground() == null ? new Color(0, 0, 0, 0) : getBackground();
             int alpha = base.getAlpha() == 255 ? 150 : Math.max(40, base.getAlpha());
+
+            Graphics2D shadow = (Graphics2D) g2.create();
+            shadow.setColor(new Color(0, 0, 0, 24));
+            shadow.fillRoundRect(5, 5, getWidth() - 8, getHeight() - 8, radius + 2, radius + 2);
+            shadow.dispose();
+
             g2.setColor(new Color(base.getRed(), base.getGreen(), base.getBlue(), alpha));
-            g2.fillRoundRect(0, 0, getWidth(), getHeight(), radius, radius);
+            g2.fillRoundRect(0, 0, getWidth() - 4, getHeight() - 4, radius, radius);
 
             if (borderColor != null) {
-                g2.setColor(alpha(borderColor, 80));
+                g2.setColor(alpha(borderColor, 85));
                 g2.setStroke(new BasicStroke(2));
-                g2.drawRoundRect(1, 1, getWidth() - 3, getHeight() - 3, radius, radius);
+                g2.drawRoundRect(1, 1, getWidth() - 7, getHeight() - 7, radius, radius);
             }
 
             g2.dispose();

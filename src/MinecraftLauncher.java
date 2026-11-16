@@ -35,18 +35,26 @@ public class MinecraftLauncher {
         Path versionJsonFile = profileDir.resolve("version.json");
         JsonObject vanillaJson = JsonParser.parseReader(new FileReader(versionJsonFile.toFile())).getAsJsonObject();
 
-        // ===== Optional Fabric JSON laden =====
+        // ===== Optional loader JSON laden =====
         Path fabricJsonFile = profileDir.resolve("fabric.json");
+        Path forgeJsonFile = profileDir.resolve("forge.json");
         JsonObject launchJson = vanillaJson;
 
         if (Files.exists(fabricJsonFile)) {
             launchJson = JsonParser.parseReader(new FileReader(fabricJsonFile.toFile())).getAsJsonObject();
             System.out.println("Fabric-Profil erkannt");
+        } else if (Files.exists(forgeJsonFile)) {
+            launchJson = JsonParser.parseReader(new FileReader(forgeJsonFile.toFile())).getAsJsonObject();
+            System.out.println("Forge-Profil erkannt");
         }
 
+        Path sharedLibrariesDir = Version.getSharedLibrariesDirForVersion(Version.resolveProfileVersion(profileDir, launchJson));
 
         // ===== Corrupted file check and auto-repair before launch =====
         repairCorruptedProfileFiles(profileDir, vanillaJson, launchJson);
+        ensureForgePatchedClientJar(profileDir, launchJson);
+
+        Version.migrateLegacyProfileLibraries(profileDir);
 
         // ===== Libraries zusammenführen =====
         JsonArray libraries = mergeLibraries(vanillaJson, launchJson);
@@ -74,13 +82,6 @@ public class MinecraftLauncher {
 
         classpathEntries.add(clientJar.toAbsolutePath().toString());
 
-        // Add compiled launcher classes to classpath
-        Path launcherClasses = Paths.get("out", "production", "Cliont");
-        if (Files.exists(launcherClasses)) {
-            classpathEntries.add(launcherClasses.toAbsolutePath().toString());
-            System.out.println("[Cliont Cape] Added launcher classes to classpath: " + launcherClasses);
-        }
-
         for (JsonElement libEl : libraries) {
 
             JsonObject lib = libEl.getAsJsonObject();
@@ -104,7 +105,9 @@ public class MinecraftLauncher {
 
             if (path == null) continue;
 
-            Path libFile = profileDir.resolve("libraries").resolve(path);
+            Path sharedLibFile = sharedLibrariesDir.resolve(path);
+            Path legacyLibFile = profileDir.resolve("libraries").resolve(path);
+            Path libFile = Files.exists(sharedLibFile) ? sharedLibFile : legacyLibFile;
 
             if (Files.exists(libFile)) {
                 if (Version.isZipValid(libFile)) {
@@ -152,39 +155,51 @@ public class MinecraftLauncher {
         // ===== Java Command =====
         List<String> command = new ArrayList<>();
 
-        Path javaExe = Version.getJavaRuntime(vanillaJson);
+        Path sharedAssetsDir = Version.getSharedAssetsDirForVersion(Version.resolveProfileVersion(profileDir, vanillaJson));
+        Map<String, String> replacements = new HashMap<>();
+        replacements.put("natives_directory", nativesDir.toAbsolutePath().toString());
+        replacements.put("classpath", classpath);
+        replacements.put("classpath_separator", File.pathSeparator);
+        replacements.put("library_directory", sharedLibrariesDir.toAbsolutePath().toString());
+        replacements.put("game_directory", profileDir.toAbsolutePath().toString());
+        replacements.put("assets_root", sharedAssetsDir.toAbsolutePath().toString());
+        replacements.put("assets_index_name", assetIndex);
+        replacements.put("version_name", version);
+        replacements.put("auth_player_name", username);
+        replacements.put("auth_uuid", uuid);
+        replacements.put("auth_access_token", accessToken);
+        replacements.put("auth_xuid", "0");
+        replacements.put("version_type", "release");
+        replacements.put("launcher_name", "Cliont");
+        replacements.put("launcher_version", "Cliont");
+        replacements.put("clientid", "");
+        replacements.put("user_properties", "{}");
+        replacements.put("resolution_width", "1280");
+        replacements.put("resolution_height", "720");
+
+        JsonObject effectiveLaunchJson = launchJson != null ? launchJson : vanillaJson;
+        JsonObject javaRuntimeJson = effectiveLaunchJson != null && effectiveLaunchJson.has("javaVersion")
+                ? effectiveLaunchJson
+                : vanillaJson;
+        Path javaExe = Version.getJavaRuntime(javaRuntimeJson);
 
         command.add(javaExe.toAbsolutePath().toString());
-        command.add("-Djava.library.path=" + nativesDir.toAbsolutePath());
-        command.add("-cp");
-        command.add(classpath);
+        command.addAll(resolveVersionArguments(vanillaJson, effectiveLaunchJson, "jvm", replacements));
+
+        boolean jvmIncludesClasspath = false;
+        for (String entry : command) {
+            if (entry.contains("${classpath}") || entry.equals("-cp") || entry.equals("-classpath") || entry.contains("classpath")) {
+                jvmIncludesClasspath = true;
+                break;
+            }
+        }
+        if (!jvmIncludesClasspath && (effectiveLaunchJson != null && effectiveLaunchJson.has("mainClass"))) {
+            command.add("-cp");
+            command.add(classpath);
+        }
+
         command.add(mainClass);
-
-        command.add("--username");
-        command.add(username);
-        command.add("--version");
-        command.add(version);
-        command.add("--gameDir");
-        command.add(profileDir.toAbsolutePath().toString());
-        command.add("--assetsDir");
-        command.add(profileDir.resolve("assets").toAbsolutePath().toString());
-        command.add("--assetIndex");
-        command.add(assetIndex);
-        command.add("--accessToken");
-        command.add(accessToken);
-        command.add("--uuid");
-        command.add(uuid);
-        command.add("--userType");
-        command.add("msa");
-
-        command.add("--versionType");
-        command.add("release");
-
-        command.add("--userProperties");
-        command.add("{}");
-
-        command.add("--xuid");
-        command.add("0");
+        command.addAll(resolveVersionArguments(vanillaJson, effectiveLaunchJson, "game", replacements));
 
         // Stream the whole Minecraft log to both the console and a log file so
         // nothing is lost even if the console output is cancelled.
@@ -262,10 +277,8 @@ public class MinecraftLauncher {
 
     /**
      * Ensures the profile's client.jar is an official, usable Minecraft jar.
-     * Custom or partially-patched jars (for example client-patched-cape.jar or
-     * renamed backup files) can break the bootstrap classpath and cause ICU /
-     * DateFormat resolution errors. If the jar is broken, it is replaced by a
-     * clean download from the profile version metadata.
+     * If a profile jar is broken or stale, it is replaced by a clean download
+     * from the profile version metadata before launch.
      */
     private static void ensureCleanClientJar(Path profileDir, JsonObject versionJson, JsonObject vanillaJson) throws Exception {
         Path clientJar = profileDir.resolve("client.jar");
@@ -278,6 +291,57 @@ public class MinecraftLauncher {
             deleteKnownClientJarJunk(profileDir);
             downloadOfficialClientJar(profileDir, manifestJson, clientJar);
         }
+    }
+
+    private static void ensureForgePatchedClientJar(Path profileDir, JsonObject launchJson) throws IOException {
+        if (profileDir == null || launchJson == null || !launchJson.has("mainClass")) {
+            return;
+        }
+        String mainClass = launchJson.get("mainClass").getAsString();
+        if (!"net.minecraftforge.bootstrap.ForgeBootstrap".equals(mainClass)) {
+            return;
+        }
+
+        Path clientJar = profileDir.resolve("client.jar");
+        if (!Files.exists(clientJar)) {
+            return;
+        }
+
+        boolean hasMarker = false;
+        try (JarFile jarFile = new JarFile(clientJar.toFile())) {
+            hasMarker = jarFile.getEntry(".forge_patched_minecraft") != null;
+        }
+
+        if (hasMarker) {
+            return;
+        }
+
+        Path tempJar = profileDir.resolve("client.jar.patched.tmp");
+        try (ZipInputStream zipIn = new ZipInputStream(Files.newInputStream(clientJar));
+             ZipOutputStream zipOut = new ZipOutputStream(Files.newOutputStream(tempJar, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING))) {
+            ZipEntry entry;
+            while ((entry = zipIn.getNextEntry()) != null) {
+                zipOut.putNextEntry(new ZipEntry(entry.getName()));
+                byte[] buffer = new byte[8192];
+                int read;
+                while ((read = zipIn.read(buffer)) != -1) {
+                    zipOut.write(buffer, 0, read);
+                }
+                zipOut.closeEntry();
+            }
+
+            ZipEntry markerEntry = new ZipEntry(".forge_patched_minecraft");
+            zipOut.putNextEntry(markerEntry);
+            zipOut.write(new byte[0]);
+            zipOut.closeEntry();
+        }
+
+        try {
+            Files.move(tempJar, clientJar, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+        } catch (AtomicMoveNotSupportedException ignored) {
+            Files.move(tempJar, clientJar, StandardCopyOption.REPLACE_EXISTING);
+        }
+        System.out.println("[Cliont] Injected Forge patched marker into client.jar.");
     }
 
     private static void downloadOfficialClientJar(Path profileDir, JsonObject manifestJson, Path clientJar) throws Exception {
@@ -361,7 +425,12 @@ public class MinecraftLauncher {
                 path = mavenToPath(lib.get("name").getAsString());
                 url = resolveLibraryUrl(lib.get("name").getAsString());
             }
-            if (path == null || url == null) {
+            if (path == null) {
+                continue;
+            }
+            URI libraryUri = safeHttpUri(url);
+            if (libraryUri == null) {
+                System.out.println("[WARN] Skipping library with no usable download URL: " + lib);
                 continue;
             }
 
@@ -374,7 +443,7 @@ public class MinecraftLauncher {
                     System.out.println("[Cliont] Missing library detected; re-downloading: " + libFile);
                 }
                 Files.createDirectories(libFile.getParent());
-                HttpRequest request = HttpRequest.newBuilder().uri(URI.create(url)).timeout(java.time.Duration.ofSeconds(60)).build();
+                HttpRequest request = HttpRequest.newBuilder().uri(libraryUri).timeout(java.time.Duration.ofSeconds(60)).build();
                 HttpResponse<InputStream> response = client.send(request, HttpResponse.BodyHandlers.ofInputStream());
                 Path tmp = libFile.resolveSibling(libFile.getFileName().toString() + ".download.tmp");
                 try (InputStream in = response.body()) {
@@ -391,13 +460,14 @@ public class MinecraftLauncher {
     }
 
     private static String resolveLibraryUrl(String name) {
-        if (name == null || name.isEmpty()) return null;
+        if (name == null || name.isBlank() || name.startsWith("${")) return null;
         String[] parts = name.split(":");
         if (parts.length < 3) return null;
-        String group = parts[0].replace('.', '/');
-        String artifact = parts[1];
-        String version = parts[2];
-        String path = group + "/" + artifact + "/" + version + "/" + artifact + "-" + version + ".jar";
+        String group = parts[0].trim();
+        String artifact = parts[1].trim();
+        String version = parts[2].trim();
+        if (group.isEmpty() || artifact.isEmpty() || version.isEmpty()) return null;
+        String path = group.replace('.', '/') + "/" + artifact + "/" + version + "/" + artifact + "-" + version + ".jar";
         if (name.contains("net.fabricmc")) {
             return "https://maven.fabricmc.net/" + path;
         }
@@ -407,14 +477,30 @@ public class MinecraftLauncher {
         return "https://libraries.minecraft.net/" + path;
     }
 
+    private static URI safeHttpUri(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        String trimmed = value.trim();
+        if (!trimmed.startsWith("http://") && !trimmed.startsWith("https://")) {
+            return null;
+        }
+        try {
+            URI uri = URI.create(trimmed);
+            if (uri.getScheme() == null || uri.getScheme().isBlank()) {
+                return null;
+            }
+            return uri;
+        } catch (IllegalArgumentException ex) {
+            return null;
+        }
+    }
+
     private static void deleteKnownClientJarJunk(Path profileDir) throws IOException {
         if (profileDir == null || !Files.exists(profileDir)) {
             return;
         }
         String[] junkNames = {
-                "client-patched-cape.jar",
-                "client.jar.before-cape-import-render-fix.bak",
-                "client.jar.before-cape-ui-fix.bak",
                 "client.jar.options-crash.bak"
         };
         for (String name : junkNames) {
@@ -526,6 +612,150 @@ public class MinecraftLauncher {
         }
 
         return allowed;
+    }
+
+    private static List<String> resolveVersionArguments(JsonObject baseJson, JsonObject versionJson, String section, Map<String, String> replacements) {
+        List<String> command = new ArrayList<>();
+        JsonArray mergedArgs = mergeVersionArguments(baseJson, versionJson, section);
+        appendResolvedArguments(command, mergedArgs, replacements);
+        return command;
+    }
+
+    private static JsonArray mergeVersionArguments(JsonObject baseJson, JsonObject versionJson, String section) {
+        JsonArray merged = new JsonArray();
+        Set<String> seen = new HashSet<>();
+
+        if (baseJson != null && baseJson.has("arguments")) {
+            JsonObject baseArgs = baseJson.getAsJsonObject("arguments");
+            if (baseArgs.has(section)) {
+                addArgumentEntries(merged, seen, baseArgs.getAsJsonArray(section));
+            }
+        }
+
+        if (versionJson != null && versionJson.has("arguments")) {
+            JsonObject overrideArgs = versionJson.getAsJsonObject("arguments");
+            if (overrideArgs.has(section)) {
+                addArgumentEntries(merged, seen, overrideArgs.getAsJsonArray(section));
+            }
+        }
+
+        return merged;
+    }
+
+    private static void addArgumentEntries(JsonArray target, Set<String> seen, JsonArray source) {
+        for (JsonElement element : source) {
+            if (element.isJsonPrimitive() && element.getAsJsonPrimitive().isString()) {
+                String value = element.getAsString();
+                if (value != null && !value.isBlank() && seen.add(value)) {
+                    target.add(element);
+                }
+            } else if (element.isJsonArray()) {
+                addArgumentEntries(target, seen, element.getAsJsonArray());
+            } else if (element.isJsonObject()) {
+                JsonObject obj = element.getAsJsonObject();
+                if (obj.has("rules")) {
+                    if (shouldApplyRules(obj.getAsJsonArray("rules"))) {
+                        if (obj.has("value")) {
+                            addArgumentEntries(target, seen, asJsonArray(obj.get("value")));
+                        }
+                    }
+                } else if (obj.has("value")) {
+                    addArgumentEntries(target, seen, asJsonArray(obj.get("value")));
+                }
+            }
+        }
+    }
+
+    private static void appendResolvedArguments(List<String> command, JsonArray arguments, Map<String, String> replacements) {
+        for (JsonElement element : arguments) {
+            if (element.isJsonPrimitive() && element.getAsJsonPrimitive().isString()) {
+                String value = element.getAsString();
+                if (value == null || value.isBlank()) {
+                    continue;
+                }
+                for (Map.Entry<String, String> entry : replacements.entrySet()) {
+                    value = value.replace("${" + entry.getKey() + "}", entry.getValue() == null ? "" : entry.getValue());
+                }
+                command.add(value);
+            } else if (element.isJsonArray()) {
+                appendResolvedArguments(command, element.getAsJsonArray(), replacements);
+            } else if (element.isJsonObject()) {
+                JsonObject obj = element.getAsJsonObject();
+                if (obj.has("rules")) {
+                    if (shouldApplyRules(obj.getAsJsonArray("rules"))) {
+                        if (obj.has("value")) {
+                            appendResolvedArguments(command, asJsonArray(obj.get("value")), replacements);
+                        }
+                    }
+                } else if (obj.has("value")) {
+                    appendResolvedArguments(command, asJsonArray(obj.get("value")), replacements);
+                }
+            }
+        }
+    }
+
+    private static JsonArray asJsonArray(JsonElement element) {
+        if (element == null || element.isJsonNull()) {
+            return new JsonArray();
+        }
+        if (element.isJsonArray()) {
+            return element.getAsJsonArray();
+        }
+        JsonArray array = new JsonArray();
+        array.add(element);
+        return array;
+    }
+
+    private static boolean shouldApplyRules(JsonArray rules) {
+        if (rules == null || rules.isEmpty()) {
+            return true;
+        }
+
+        String osName = System.getProperty("os.name").toLowerCase();
+        String osArch = System.getProperty("os.arch").toLowerCase();
+        boolean allow = false;
+
+        for (JsonElement ruleEl : rules) {
+            JsonObject rule = ruleEl.getAsJsonObject();
+            String action = rule.has("action") ? rule.get("action").getAsString() : "allow";
+            boolean applies = true;
+
+            if (rule.has("features")) {
+                applies = false;
+            }
+
+            if (rule.has("os")) {
+                JsonObject os = rule.getAsJsonObject("os");
+                if (os.has("name")) {
+                    String name = os.get("name").getAsString();
+                    if (name.equals("windows")) {
+                        applies &= osName.contains("win");
+                    } else if (name.equals("linux")) {
+                        applies &= osName.contains("linux");
+                    } else if (name.equals("osx")) {
+                        applies &= osName.contains("mac");
+                    }
+                }
+                if (os.has("arch")) {
+                    String arch = os.get("arch").getAsString().toLowerCase();
+                    if (arch.equals("x86")) {
+                        applies &= (osArch.contains("x86") || osArch.contains("i386"));
+                    } else if (arch.equals("x86_64") || arch.equals("amd64")) {
+                        applies &= (osArch.contains("amd64") || osArch.contains("x86_64"));
+                    } else if (arch.equals("arm64") || arch.equals("aarch64")) {
+                        applies &= (osArch.contains("arm64") || osArch.contains("aarch64"));
+                    } else {
+                        applies &= osArch.contains(arch);
+                    }
+                }
+            }
+
+            if (applies) {
+                allow = "allow".equals(action);
+            }
+        }
+
+        return allow;
     }
 
     private static JsonArray mergeLibraries(JsonObject vanillaJson, JsonObject launchJson) {
